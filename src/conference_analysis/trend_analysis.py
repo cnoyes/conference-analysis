@@ -165,13 +165,43 @@ class TrendAnalyzer:
         df = self.compare_time_periods(early_period, late_period, top_n * 2, min_occurrences)
         return df[df['change'] < 0].sort_values('change', ascending=True).head(top_n)
 
+    def _is_meaningful_phrase(self, phrase: str, ngram_size: int, stopwords: set) -> bool:
+        """
+        Filter out phrases containing stopwords in unhelpful positions.
+
+        Strategy:
+        - Bigrams (2 words): Reject if EITHER word is a stopword
+          (e.g., "brothers and" → rejected)
+        - Trigrams (3 words): Reject if FIRST or LAST word is a stopword
+          (e.g., "brothers and sisters" → kept, "brothers and" → rejected)
+        - N-grams (4+ words): Reject if first or last word is a stopword
+
+        Args:
+            phrase: The phrase to check
+            ngram_size: Number of words in the phrase
+            stopwords: Set of stopwords to check against
+
+        Returns:
+            True if phrase is meaningful, False otherwise
+        """
+        words = phrase.split()
+
+        if ngram_size == 2:
+            # For bigrams, reject if either word is a stopword
+            return not any(word in stopwords for word in words)
+        else:
+            # For trigrams and longer, only reject if first or last word is stopword
+            # This keeps "brothers and sisters" but rejects "brothers and" and "and sisters"
+            return words[0] not in stopwords and words[-1] not in stopwords
+
     def compare_phrases(
         self,
         early_period: Tuple[int, int],
         late_period: Tuple[int, int],
         ngram_range: Tuple[int, int] = (2, 3),
         top_n: int = 25,
-        min_occurrences: int = 5
+        min_occurrences: int = 5,
+        filter_stopwords: bool = True
     ) -> pd.DataFrame:
         """
         Compare phrase usage between two time periods.
@@ -182,10 +212,32 @@ class TrendAnalyzer:
             ngram_range: (min_n, max_n) for n-grams (2,3 = bigrams and trigrams)
             top_n: Number of top phrases to return
             min_occurrences: Minimum total occurrences
+            filter_stopwords: Whether to filter phrases with stopwords
 
         Returns:
             DataFrame with phrase changes
         """
+        # Get stopwords
+        if filter_stopwords:
+            from nltk.corpus import stopwords as nltk_stopwords
+            import nltk
+            try:
+                stopwords = set(nltk_stopwords.words('english'))
+            except LookupError:
+                nltk.download('stopwords')
+                stopwords = set(nltk_stopwords.words('english'))
+
+            # Add domain-specific stopwords common in religious text
+            domain_stopwords = {
+                'said', 'would', 'may', 'shall', 'must', 'can', 'could',
+                'will', 'also', 'one', 'two', 'three', 'make', 'made',
+                'like', 'get', 'go', 'know', 'think', 'see', 'come',
+                'even', 'well', 'back', 'much', 'good', 'many', 'first',
+                'last', 'long', 'little', 'own', 'other', 'old', 'right',
+                'new', 'way', 'day', 'time', 'year', 'work', 'part', 'place'
+            }
+            stopwords.update(domain_stopwords)
+
         # Get talks for each period
         early_talks = self.talks_df[
             (self.talks_df['year'] >= early_period[0]) &
@@ -201,7 +253,7 @@ class TrendAnalyzer:
             ngram_range=ngram_range,
             max_features=5000,
             lowercase=True,
-            token_pattern=r'\b[a-z]{3,}\b'
+            token_pattern=r'\b[a-z]{3,}\b'  # Min 3 characters
         )
 
         # Fit on all text to get vocabulary
@@ -221,6 +273,12 @@ class TrendAnalyzer:
         results = []
 
         for i, phrase in enumerate(phrases):
+            # Filter based on stopwords
+            if filter_stopwords:
+                ngram_size = len(phrase.split())
+                if not self._is_meaningful_phrase(phrase, ngram_size, stopwords):
+                    continue
+
             early_count = early_counts[i]
             late_count = late_counts[i]
             total_count = early_count + late_count
@@ -237,6 +295,7 @@ class TrendAnalyzer:
 
             results.append({
                 'phrase': phrase,
+                'ngram_size': ngram_size,
                 'early_freq': early_freq,
                 'late_freq': late_freq,
                 'change': change,
