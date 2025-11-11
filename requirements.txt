@@ -1,0 +1,4 @@
+# Core dependencies
+# Add your project dependencies here
+
+# Development dependencies (install with: pip install -r requirements-dev.txt)

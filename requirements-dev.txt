@@ -1,0 +1,14 @@
+# Development and testing dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Jupyter (optional, uncomment if needed)
+# jupyter>=1.0.0
+# ipykernel>=6.0.0
+
+# Documentation (optional, uncomment if needed)
+# sphinx>=5.0.0
+# sphinx-rtd-theme>=1.0.0
