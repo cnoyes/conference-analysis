@@ -266,13 +266,16 @@ class EmbeddingsAnalyzer:
         cluster_talks = clustered_df[clustered_df['cluster'] == cluster_id]
 
         # Get cluster center (mean of embeddings)
-        cluster_indices = cluster_talks.index
-        cluster_embeddings = self.embeddings[cluster_indices]
+        # Convert DataFrame indices to positional indices for embeddings array
+        cluster_indices = cluster_talks.index.tolist()
+        cluster_positions = [self.talks_df.index.get_loc(idx) for idx in cluster_indices]
+        cluster_embeddings = self.embeddings[cluster_positions]
         cluster_center = cluster_embeddings.mean(axis=0).reshape(1, -1)
 
         # Find most central talks
         distances = cosine_similarity(cluster_center, cluster_embeddings)[0]
-        central_indices = cluster_indices[np.argsort(-distances)[:top_n]]
+        top_positions = np.argsort(-distances)[:top_n]
+        central_indices = [cluster_indices[i] for i in top_positions]
 
         return {
             'cluster_id': cluster_id,
