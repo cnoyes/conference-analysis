@@ -34,6 +34,7 @@ This project goes beyond simple word clouds to provide deep semantic understandi
 
 - **Web Scraping**: Automated collection of all General Conference talks from churchofjesuschrist.org
 - **Temporal Analysis**: Track how words, phrases, and themes change over decades
+- **Trend Discovery**: **NEW** - Systematically identify what has changed over 50 years
 - **Embeddings-based Analysis**: Use semantic embeddings to understand meaning beyond keywords
 - **Topic Discovery**: Automatically discover and cluster recurring themes across 50+ years
 - **Semantic Search**: Find talks by concept, not just keyword matching
@@ -41,6 +42,25 @@ This project goes beyond simple word clouds to provide deep semantic understandi
 **Technology Stack**: Python, BeautifulSoup, sentence-transformers, scikit-learn, pandas, plotly
 
 **Based on**: Original R Shiny word cloud application (~/Projects/conference)
+
+## Current Status (v0.2.0)
+
+**✅ Fully functional and ready for research**
+
+**Latest additions:**
+- `trend_analysis.py` module for systematic trend discovery
+- `02_trend_analysis.ipynb` notebook with comprehensive examples
+- Smart stopword filtering for phrase analysis
+- Hypothesis testing framework
+- Comparative concept tracking over decades
+- Export capabilities for presentations
+
+**Data cached and ready:**
+- 4,890 talks from 1971-2024 (48MB)
+- Embeddings pre-generated (7.2MB)
+- All operations are instant (< 1 second)
+
+**See**: `docs/SESSION_NOTES.md` for detailed session history and how to resume work.
 
 ## Key Commands
 
@@ -106,10 +126,11 @@ type(scope): brief description
 ## Architecture
 
 ### Key Components
-1. **Scraper** (`src/conference-analysis/scraper.py`): Web scraping of General Conference talks
-2. **Temporal Analyzer** (`src/conference-analysis/temporal_analysis.py`): Word/phrase frequency tracking over time
-3. **Embeddings Analyzer** (`src/conference-analysis/embeddings.py`): Semantic analysis using neural embeddings
-4. **Notebooks** (`notebooks/`): Interactive exploration and visualization
+1. **Scraper** (`src/conference_analysis/scraper.py`): Web scraping of General Conference talks
+2. **Temporal Analyzer** (`src/conference_analysis/temporal_analysis.py`): Word/phrase frequency tracking over time
+3. **Embeddings Analyzer** (`src/conference_analysis/embeddings.py`): Semantic analysis using neural embeddings
+4. **Trend Analyzer** (`src/conference_analysis/trend_analysis.py`): **NEW** - Systematic discovery of changes over time
+5. **Notebooks** (`notebooks/`): Interactive exploration and visualization
 
 ### Data Flow
 ```
@@ -119,12 +140,16 @@ ChurchofJesusChrist.org → Scraper → CSV Cache → Analysis Modules → Visua
 ```
 
 ### Important Files
-- `data/raw/talks.csv`: Cached talks data (not in git)
-- `data/processed/embeddings_*.pkl`: Cached embeddings (not in git)
-- `notebooks/01_exploration.ipynb`: Main interactive notebook
-- `src/conference-analysis/scraper.py`: Web scraping logic
-- `src/conference-analysis/temporal_analysis.py`: Temporal trend analysis
-- `src/conference-analysis/embeddings.py`: Semantic embeddings analysis
+- `data/raw/talks.csv`: Cached talks data - 4,890 talks, 48MB (not in git)
+- `data/processed/embeddings_*.pkl`: Cached embeddings - 7.2MB (not in git)
+- `notebooks/01_exploration.ipynb`: General exploration and embeddings tutorial
+- `notebooks/02_trend_analysis.ipynb`: **NEW** - Systematic trend discovery
+- `src/conference_analysis/scraper.py`: Web scraping logic
+- `src/conference_analysis/temporal_analysis.py`: Temporal trend analysis
+- `src/conference_analysis/embeddings.py`: Semantic embeddings analysis
+- `src/conference_analysis/trend_analysis.py`: **NEW** - Trend discovery and hypothesis testing
+- `docs/EMBEDDINGS_GUIDE.md`: Comprehensive embeddings tutorial
+- `docs/SESSION_NOTES.md`: Development session notes and how to resume
 
 ### Data Storage
 ```

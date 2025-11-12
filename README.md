@@ -4,6 +4,17 @@ Advanced NLP analysis of LDS General Conference talks (1971-present) using tempo
 
 This project goes beyond simple word clouds to provide deep semantic understanding of how topics, themes, and language evolve over 50+ years of General Conference.
 
+## ⭐ Latest Features (v0.2.0)
+
+**Systematic Trend Discovery** - Automatically identify what has changed over 50 years:
+- 📈 **Top increasing/decreasing words** - No guessing, data-driven discovery
+- 💬 **Phrase analysis** - Smart stopword filtering for meaningful multi-word terms
+- 🧪 **Hypothesis testing** - Statistically validate your theories (e.g., "more Christ-centered?")
+- 📊 **Comparative analysis** - Track multiple concepts simultaneously across decades
+- 🎯 **Export results** - CSV outputs for presentations and further analysis
+
+See `notebooks/02_trend_analysis.ipynb` for comprehensive examples.
+
 ## Installation
 
 ```bash
@@ -30,6 +41,13 @@ pip install -r requirements-dev.txt
 - Compare different time periods (decades, years, conferences)
 - Generate word clouds for specific time periods
 - Analyze speaker evolution over their ministry
+
+### 🔍 Trend Analysis (NEW!)
+- **Systematic discovery**: Automatically find top increasing/decreasing words
+- **Phrase analysis**: Multi-word terms with intelligent stopword filtering
+- **Hypothesis testing**: Validate theories with statistical evidence
+- **Comparative tracking**: Monitor multiple concepts across all decades
+- **Visualizations**: Side-by-side comparisons and multi-line trend graphs
 
 ### 🧠 Embeddings-based Semantic Analysis
 - **Semantic search**: Find talks by meaning, not just keywords
