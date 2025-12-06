@@ -29,7 +29,7 @@ plotly>=5.17.0
 gensim>=4.3.0
 
 # Database (for caching results)
-sqlite3-python>=0.5.0  # Built-in, but listed for clarity
+# sqlite3 is built into Python - no package needed
 
 # Utilities
 tqdm>=4.66.0
