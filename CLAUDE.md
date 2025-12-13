@@ -1,262 +1,112 @@
-# CLAUDE.md Template
-
-Copy this template to new repositories and customize the Project Overview section.
-
----
-
 # CLAUDE.md
 
 This file provides **mandatory instructions** to Claude Code (claude.ai/code) when working with code in this repository.
 
-## ⚠️ MANDATORY PRACTICES
+---
 
-**READ FIRST**: Before starting any work, read `.claude/BEST_PRACTICES.md` for comprehensive development guidelines.
+## 🌐 CENTRAL DOCUMENTATION
 
-**You MUST:**
-1. ✅ Create feature branches for all non-trivial work (NEVER commit directly to main)
-2. ✅ Create GitHub issues before starting features
-3. ✅ Use plan mode for features requiring 3+ file changes
-4. ✅ Invoke code-reviewer agent before creating PRs
-5. ✅ Follow conventional commit format
-6. ✅ Write tests for new features
-7. ✅ Update documentation for user-facing changes
+**BEFORE MAKING ANY CHANGES**, read the ecosystem documentation in ldt-data:
 
-**Branch naming**: `<type>/<issue-number>-<brief-description>`
-**Commit format**: `<type>(<scope>): <subject>` (see BEST_PRACTICES.md)
+```
+../ldt-data/docs/ECOSYSTEM.md  - All repos and architecture
+../ldt-data/docs/ROADMAP.md    - Phases and priorities
+```
+
+Or on GitHub: https://github.com/cnoyes/ldt-data/tree/main/docs
+
+This ensures you understand how this repo fits into the larger LatterDay Tools ecosystem.
 
 ---
 
 ## Project Overview
 
-**General Conference Topic Analysis** - Advanced NLP analysis of LDS General Conference talks (1971-present).
+**conference-analysis** is a Python NLP toolkit for deep analysis of LDS General Conference talks.
 
-This project goes beyond simple word clouds to provide deep semantic understanding using modern NLP techniques:
+**Features**:
+- Web scraping from churchofjesuschrist.org (4,890 talks, 1971-2025)
+- Sentence embeddings (sentence-transformers)
+- Temporal word/phrase frequency analysis
+- Trend discovery (increasing/decreasing terms over decades)
+- Topic clustering with K-Means and DBSCAN
+- Interactive Plotly visualizations
 
-- **Web Scraping**: Automated collection of all General Conference talks from churchofjesuschrist.org
-- **Temporal Analysis**: Track how words, phrases, and themes change over decades
-- **Trend Discovery**: **NEW** - Systematically identify what has changed over 50 years
-- **Embeddings-based Analysis**: Use semantic embeddings to understand meaning beyond keywords
-- **Topic Discovery**: Automatically discover and cluster recurring themes across 50+ years
-- **Semantic Search**: Find talks by concept, not just keyword matching
+**Tech Stack**: Python, sentence-transformers, pandas, plotly, scikit-learn
 
-**Technology Stack**: Python, BeautifulSoup, sentence-transformers, scikit-learn, pandas, plotly
+**Relationship to ldt-conference**:
+- This repo = NLP analysis engine (command line / Jupyter)
+- ldt-conference = Web UI that displays results
+- Future work will connect them via ldt-data exports
 
-**Based on**: Original R Shiny word cloud application (~/Projects/conference)
-
-## Current Status (v0.2.0)
-
-**✅ Fully functional and ready for research**
-
-**Latest additions:**
-- `trend_analysis.py` module for systematic trend discovery
-- `02_trend_analysis.ipynb` notebook with comprehensive examples
-- Smart stopword filtering for phrase analysis
-- Hypothesis testing framework
-- Comparative concept tracking over decades
-- Export capabilities for presentations
-
-**Data cached and ready:**
-- 4,890 talks from 1971-2024 (48MB)
-- Embeddings pre-generated (7.2MB)
-- All operations are instant (< 1 second)
-
-**See**: `docs/SESSION_NOTES.md` for detailed session history and how to resume work.
+---
 
 ## Key Commands
 
-### Development Setup
 ```bash
-# Create virtual environment
+# Setup
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# Download required NLP models
-python -c "import nltk; nltk.download('stopwords')"
+# Scrape talks (first time)
+python -m conference_analysis.scraper
 
-# Install spaCy model (optional, for advanced NLP)
-python -m spacy download en_core_web_sm
+# Run analysis in Jupyter
+jupyter notebook notebooks/
+
+# Run trend analysis
+python -c "from conference_analysis import trend_analysis; ..."
 ```
 
-### Running the Analysis
-```bash
-# Scrape talks (first time only, ~30-60 minutes)
-python src/conference-analysis/scraper.py
-
-# Run interactive notebook
-jupyter notebook notebooks/01_exploration.ipynb
-
-# Or run individual modules
-python src/conference-analysis/temporal_analysis.py
-python src/conference-analysis/embeddings.py
-```
-
-### Testing
-```bash
-pytest tests/
-```
-
-## Development Workflow
-
-For this project, always:
-- Create feature branches from main
-- Write tests before implementation (TDD)
-- Run full test suite before creating PRs
-- Reference issue numbers in commits and PRs
-
-### Branch Naming
-Use descriptive branch names with prefixes:
-- `feature/` - New features or enhancements
-- `fix/` - Bug fixes
-- `refactor/` - Code improvements without behavior changes
-- `docs/` - Documentation updates
-
-### Commit Messages
-Follow conventional commit format:
-```
-type(scope): brief description
-
-- Reference issue numbers with #123
-- Explain what changed and why
-- Keep first line under 72 characters
-```
+---
 
 ## Architecture
 
-### Key Components
-1. **Scraper** (`src/conference_analysis/scraper.py`): Web scraping of General Conference talks
-2. **Temporal Analyzer** (`src/conference_analysis/temporal_analysis.py`): Word/phrase frequency tracking over time
-3. **Embeddings Analyzer** (`src/conference_analysis/embeddings.py`): Semantic analysis using neural embeddings
-4. **Trend Analyzer** (`src/conference_analysis/trend_analysis.py`): **NEW** - Systematic discovery of changes over time
-5. **Notebooks** (`notebooks/`): Interactive exploration and visualization
-
-### Data Flow
 ```
-ChurchofJesusChrist.org → Scraper → CSV Cache → Analysis Modules → Visualizations
-                                         ↓
-                                   Embeddings Cache
-```
+src/conference_analysis/
+├── scraper.py           # Web scraping from Church website
+├── embeddings.py        # Sentence embeddings and semantic search
+├── temporal_analysis.py # Word frequency over time
+├── trend_analysis.py    # Systematic trend discovery
+└── example.py           # Usage examples
 
-### Important Files
-- `data/raw/talks.csv`: Cached talks data - 4,890 talks, 48MB (not in git)
-- `data/processed/embeddings_*.pkl`: Cached embeddings - 7.2MB (not in git)
-- `notebooks/01_exploration.ipynb`: General exploration and embeddings tutorial
-- `notebooks/02_trend_analysis.ipynb`: **NEW** - Systematic trend discovery
-- `src/conference_analysis/scraper.py`: Web scraping logic
-- `src/conference_analysis/temporal_analysis.py`: Temporal trend analysis
-- `src/conference_analysis/embeddings.py`: Semantic embeddings analysis
-- `src/conference_analysis/trend_analysis.py`: **NEW** - Trend discovery and hypothesis testing
-- `docs/EMBEDDINGS_GUIDE.md`: Comprehensive embeddings tutorial
-- `docs/SESSION_NOTES.md`: Development session notes and how to resume
+notebooks/
+├── 01_exploration.ipynb     # Interactive tutorial
+└── 02_trend_analysis.ipynb  # Comprehensive trend analysis
 
-### Data Storage
-```
 data/
-├── raw/
-│   └── talks.csv              # Scraped talks (generated, not in git)
-├── processed/
-│   ├── embeddings_*.pkl       # Cached embeddings (generated, not in git)
-│   └── *.html                 # Generated visualizations
-└── public/                    # Any shareable datasets (optional)
+├── raw/talks.csv            # Scraped talks (gitignored)
+└── processed/embeddings*.pkl # Cached embeddings (gitignored)
 ```
 
-## Important Configuration
+---
 
-### Embedding Models
+## Key Capabilities
 
-The project uses sentence-transformers models for embeddings. You can configure which model to use:
-
-- `'all-MiniLM-L6-v2'` (default): Fast and efficient, good quality (384 dimensions)
-- `'all-mpnet-base-v2'`: Slower but higher quality (768 dimensions)
-- See [SBERT models](https://www.sbert.net/docs/pretrained_models.html) for more options
-
-### Scraping Configuration
-
-- **Delay between requests**: Default 1.0 second (be respectful to the server)
-- **Date range**: Default 1971-04-01 to present
-- **Cache file**: `data/raw/talks.csv`
-
-### No Environment Variables Required
-
-This project doesn't require API keys or secrets.
-
-## Common Patterns
-
-### Pattern 1: Incremental Scraping
-
-The scraper automatically detects what's already cached and only fetches new talks:
-
-```python
-from conference_analysis.scraper import ConferenceScraper
-
-scraper = ConferenceScraper(cache_file='data/raw/talks.csv')
-talks = scraper.update_cache()  # Only fetches new talks
-```
-
-### Pattern 2: Cached Embeddings
-
-Embeddings are computationally expensive to generate, so always use caching:
-
+### Embeddings (embeddings.py)
 ```python
 from conference_analysis.embeddings import EmbeddingsAnalyzer
-
-analyzer = EmbeddingsAnalyzer(talks, cache_dir='data/processed')
-analyzer.generate_embeddings()  # Fast if cached, slow on first run
+analyzer = EmbeddingsAnalyzer()
+results = analyzer.semantic_search("faith during trials", top_k=10)
 ```
 
-### Pattern 3: Interactive vs Static Plots
-
-Most plotting functions support both interactive (Plotly) and static (Matplotlib):
-
+### Temporal Analysis (temporal_analysis.py)
 ```python
-# Interactive (for notebooks and web apps)
-fig = temporal.plot_word_trends(words, interactive=True)
-fig.show()
-
-# Static (for reports and papers)
-fig = temporal.plot_word_trends(words, interactive=False)
-plt.savefig('output.png')
+from conference_analysis.temporal_analysis import TemporalAnalyzer
+analyzer = TemporalAnalyzer()
+analyzer.plot_word_frequency("repentance", by="decade")
 ```
 
-## Troubleshooting
+### Trend Analysis (trend_analysis.py)
+```python
+from conference_analysis.trend_analysis import TrendAnalyzer
+analyzer = TrendAnalyzer()
+increasing = analyzer.find_increasing_words(top_n=20)
+```
 
-### Common Issues
+---
 
-1. **Issue**: Scraper failing with 404 errors
-   **Solution**: Website HTML structure may have changed. Check selector patterns in `scraper.py`:
-   - Line 98: `talk_element.find('a', class_='item-U_5Ca')`
-   - Line 105: `link.find(class_='subtitle-LKtQp')`
-   - Line 153: `soup.select('.body-block p')`
+## Related Repos
 
-2. **Issue**: Out of memory when generating embeddings
-   **Solution**: Reduce batch size or process talks in chunks:
-   ```python
-   # In embeddings.py, line 75, reduce batch_size from 32 to 16 or 8
-   self.embeddings = self.model.encode(texts, batch_size=16)
-   ```
-
-3. **Issue**: NLTK stopwords not found
-   **Solution**: Download NLTK data:
-   ```python
-   import nltk
-   nltk.download('stopwords')
-   ```
-
-4. **Issue**: Jupyter kernel crashes when generating embeddings
-   **Solution**: PyTorch may be using too much memory. Use a smaller model:
-   ```python
-   # Use the lightweight model
-   analyzer = EmbeddingsAnalyzer(talks, model_name='all-MiniLM-L6-v2')
-   ```
-
-5. **Issue**: Scraping takes too long
-   **Solution**: For testing, scrape a smaller date range:
-   ```python
-   from datetime import date
-   talks = scraper.scrape_all(
-       start_date=date(2020, 1, 1),
-       end_date=date(2024, 12, 31)
-   )
-   ```
+- **ldt-data** - Central documentation hub; will receive exports from this repo
+- **ldt-conference** - Web UI that will display analysis results
