@@ -35,7 +35,7 @@ def corpus_check(log=print):
     lines += [
         f"- API conferences: {totals[0]} (1971-04 to 2026-04), {totals[1]} addresses "
         f"({totals[3]:,} words), {totals[2]} non-address items (sessions, sustainings, reports)",
-        f"- Provisional talks (ldt-scribe, 2026-10): {prov[0]} ({prov[1]:,} words)",
+        f"- Provisional talks (ldt-scribe transcripts): {prov[0]} ({prov[1] or 0:,} words)",
         f"- Paragraphs: {para:,}; footnotes: {notes:,}; citations: {cites:,}", "",
         "| Conference | Addresses (API) | Legacy talks | Diff | Status |",
         "|---|---|---|---|---|",

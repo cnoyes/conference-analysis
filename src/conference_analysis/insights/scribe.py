@@ -38,6 +38,9 @@ def callings(session_dir):
 def ingest(conf_id="2026-10", log=print):
     """Replace the provisional conference's rows. Idempotent."""
     con = connect()
+    if con.execute("SELECT 1 FROM talks WHERE conf_id=? AND source='api'", (conf_id,)).fetchone():
+        log(f"{conf_id} already has official text; provisional transcripts not ingested")
+        return 0
     delete_talk_rows(con, "conf_id=? AND source='scribe'", (conf_id,))
     ensure_conference(con, conf_id, provisional=1)
     position = 0

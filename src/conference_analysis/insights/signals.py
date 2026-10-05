@@ -1,7 +1,10 @@
 """Word and phrase signals for a target conference C (SPEC F1, blueprint 4.1).
 
-Everything here reads only conferences with ordinal <= C, so running it "as of" a past
-conference is an honest backtest.
+Counts are read only from conferences with ordinal <= C, so running it "as of" a past
+conference is an honest backtest of the classes. Two all-time inputs remain, and only
+affect which candidates pass the guards: the index keeps n-grams that at least two talks
+ever used, and the name guard uses the full speaker list and all-time capitalisation
+counts.
 
 Classes (precedence in this order; a term gets exactly one):
   new        never used before C, >= 2 speakers in C
@@ -193,7 +196,7 @@ class ConfText:
     """The tokenised talks of a conference, loaded on demand, for per-talk checks."""
 
     def __init__(self, con):
-        self.con, self.cache = con, {}
+        self.con, self.cache, self.norm = con, {}, {}
 
     def talks(self, ordinal):
         if ordinal not in self.cache:
@@ -204,6 +207,23 @@ class ConfText:
                 talks[talk_id] = talks.get(talk_id, "") + f" {clean} |"
             self.cache[ordinal] = talks
         return self.cache[ordinal]
+
+    def spoken(self, ordinal, term):
+        """True if the term occurs anywhere in the conference, scripture quotations and
+        near-identical spellings (fulness / fullness) included. Guards "absent"."""
+        if ordinal not in self.norm:
+            rows = self.con.execute(
+                "SELECT n.norm FROM para_norm n JOIN talks t USING (talk_id) "
+                "JOIN conferences c USING (conf_id) WHERE c.ordinal=?", (ordinal,))
+            text = " " + " | ".join(r[0] for r in rows) + " "
+            self.norm[ordinal] = (text, set(text.split()))
+        text, vocab = self.norm[ordinal]
+        if f" {term} " in text:
+            return True
+        return " " not in term and len(term) >= 5 and any(
+            abs(len(w) - len(term)) <= 1 and one_edit(w, term)
+            and w != term + "s" and term != w + "s"  # a plural is a different word
+            for w in vocab)
 
     def top_share(self, ordinal, term):
         """Share of the conference's uses of term that come from its heaviest talk."""
@@ -225,6 +245,18 @@ class ConfText:
             if needle in f" {text} " or grams:
                 shared = grams if shared is None else shared & grams
         return bool(shared)
+
+
+def one_edit(a, b):
+    """True if a and b differ by exactly one inserted, deleted or changed letter."""
+    if a == b:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:] if len(a) < len(b) else a[i + 1:] == b[i + 1:]
 
 
 def fragments(terms, weight):
@@ -311,6 +343,8 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
                 continue
             if provisional and cls in ("fading", "absent") and "'" in term:
                 continue  # possessives are spelled differently in transcripts
+            if cls == "absent" and texts.spoken(c, term):
+                continue  # said after all: inside a scripture quotation or spelled differently
             if cls == "fading" and texts.top_share(int(peak_ord[i]), term) > MAX_TALK_SHARE:
                 continue  # the "surge" was one talk
             if cls in ("new", "revived") and texts.shared_passage(c, term):

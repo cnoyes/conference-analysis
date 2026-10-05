@@ -155,3 +155,50 @@ is the rationale. Work happens on branch `feat/insights-engine`.
   quote: origin 2016-10 + 11 later talks.
 - The MANDATORY PRACTICES above about GitHub issues do not apply to the loop;
   commit on `feat/insights-engine`, never push.
+
+### Insights engine — data contracts and gotchas (added by the loop, 2026-10-05)
+
+Run order and commands: README "Insights engine". Decisions and thresholds: DECISIONS.md.
+
+**corpus.db tables** (schema in `insights/db.py`): `conferences(conf_id, ordinal, provisional)`
+(ordinal 1 = 1971-04, 112 = 2026-10), `speakers`, `talks` (`kind`: address/business/session/other;
+`source`: api/scribe/historical; `calling_group`), `paragraphs`, `footnotes`, `citations`
+(`fn_id` NULL = link in the talk body), `para_norm` (token view: `norm`, `clean`, `quoted`,
+`scripture`), `terms`/`term_conf`/`conf_stats`/`vocab` (n-gram index), `quotes`/`quote_uses`,
+`scripture_quotes`, `chunks`/`chunk_topics` (topic passages). `talk_id` = ordinal × 100 +
+position; `para_id`/`chunk_id` = talk_id × 1000 + n. Everything except `speakers` is rebuilt
+deterministically, so ids are stable.
+
+- **A "use" of a phrase** = occurrence of `' phrase '` in `' ' || para_norm.clean || ' '`
+  (overlapping occurrences count). `clean` has `|` at sentence ends and in place of scripture
+  quotations, so counts never span sentences or include quoted scripture. Any reported count
+  can be reproduced with that one SQL expression.
+- **API**: `meta.structuredData` (JSON) holds the clean author name; `referenceUris` in
+  footnotes is incomplete — parse the `href`s in the footnote HTML. Old talks carry
+  scripture links in the body, not in footnotes. Talk→talk links first appear in 1976 and
+  are sparse before 2010. Recent URIs look like `/general-conference/2022/04/47nelson`.
+  The first uncached fetch of old pages is slow (~1 s each); the whole scrape took ~45 min.
+- **Non-talks**: `data-content-type` separates sessions and business items; sustainings and
+  reports typed as talks are caught by title (`BUSINESS_TITLE` in `build.py`).
+- **Scribe transcripts**: no titles, no footnotes; `program.yaml` in each session folder has
+  the callings. Whisper artefacts handled at ingest/tokenising: doubled words and 2–3-word
+  phrases, spoken "quote … close quote", one hallucinated "© transcript …" paragraph.
+  Whisper spells some words differently from the official text (possessives, worshiped/
+  worshipped), which can split a phrase's or quote's history.
+- **Word counts**: `talks.word_count` is raw words; `conf_stats.words` excludes quoted
+  scripture (and collapsed doubles) and is the denominator for every rate.
+- **Topic model v1** is frozen in `data/topics/v1/` (centroids, topics, labels, meta).
+  `topics fit` refuses to overwrite it. Label/boilerplate corrections from review live in
+  `topics.REVIEWED` (code), not in `labels.json`. Embedding cache: `data/embeddings/` (keyed
+  by sha1 of passage text; ~4 min for the full corpus on the 3090, ~4 GB VRAM).
+- **LLM cache**: `data/llm_cache/` keyed by prompt. Deleting it re-asks `claude -p` and may
+  change labels, screening and sentences (never numbers).
+- **Workspace hook gotcha**: a RankView safety hook blocks any Bash command that mentions
+  the word for the SQLite CLI/module together with an SQL write keyword (even inside a
+  heredoc that only edits a Python file). Edit such files with the Edit/Write tools and run
+  read-only queries from a script file.
+- **Seasonality**: Easter words/topics spike every April. Fading ignores seasonal words;
+  seasonal topics are compared with same-month conferences.
+- **Known limits**: scripture quotations under 6 words are not masked; a quote's "origin" is
+  the earliest use since 1971 (flag `origin_quoted` = that speaker was already quoting);
+  the peacemakers backtest in SPEC was amended (see SPEC changelog).

@@ -145,8 +145,10 @@ def embed_missing(con, log=print):
                                        show_progress_bar=False)
                 break
             except torch.cuda.OutOfMemoryError:
+                if batch == 1:
+                    raise  # the GPU is full (whisper cron?); rerun later, the cache resumes
                 torch.cuda.empty_cache()
-                batch = max(1, batch // 2)
+                batch = batch // 2
                 log(f"GPU out of memory; retrying with batch size {batch}")
         shas = np.array([s for s, _ in part])
         existing = len(list(EMB_DIR.glob("part-*.npz")))

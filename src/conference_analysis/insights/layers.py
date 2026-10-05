@@ -58,7 +58,7 @@ def topic_signals(con, conf_id, model_topics):
         if topic_id < 0:
             continue
         y_i, y_j = passages[i, col], passages[i, base].sum()
-        base_share = y_j / totals[base].sum()
+        base_share = y_j / max(totals[base].sum(), 1)
         older_share = passages[i, older].sum() / max(totals[older].sum(), 1)
         z = float(log_odds_z(y_i, totals[col], y_j, totals[base].sum(),
                              passages[i, :col + 1].sum() / totals[:col + 1].sum()))
@@ -67,7 +67,7 @@ def topic_signals(con, conf_id, model_topics):
         off = [k for k in range(col - 1, max(-1, col - BASELINE_N - 1), -2)]
         same_share = passages[i, same].sum() / max(totals[same].sum(), 1)
         off_share = passages[i, off].sum() / max(totals[off].sum(), 1)
-        seasonal = bool((same_share < 0.5 * off_share or off_share < 0.5 * same_share) and y_j >= 20)
+        seasonal = bool((same_share < off_share / 3 or off_share < same_share / 3) and y_j >= 30)
         if seasonal:
             y_j, base_share = passages[i, same].sum(), same_share
             z = float(log_odds_z(y_i, totals[col], y_j, totals[same].sum(),
@@ -90,7 +90,9 @@ def topic_signals(con, conf_id, model_topics):
             "share": round(float(share[i, col]), 5), "talk_share": round(talks[i, col] / n_talks, 4),
             "base_passages": int(y_j), "base_share": round(float(base_share), 5),
             "older_share": round(float(older_share), 5), "z": round(z, 2), "seasonal": seasonal,
-            "history": [round(float(s), 5) for s in share[i]],
+            # one value per ordinal from the first conference to C (0 where one is missing)
+            "history": [round(float(share[i, ords.index(o)]), 5) if o in ords else 0.0
+                        for o in range(ords[0], c + 1)],
         })
     return {"total_passages": int(totals[col]), "base_total_passages": int(totals[base].sum()),
             "no_topic_passages": int(passages[topics.index(-1), col]) if -1 in topics else 0,
@@ -127,7 +129,12 @@ def new_topic_candidates(con, conf_id, cache):
 # ---------------------------------------------------------------- quotes
 
 def quote_signals(con, conf_id):
-    """Established quotes repeated in C, leaderboards, and (official text only) cited talks."""
+    """Established quotes repeated in C, leaderboards, and (official text only) cited talks.
+
+    The quote tables are built over the whole corpus. Lineages are cut off at C, but which
+    passages count as quotes, and the leaderboard order, are decided on all-time data, so
+    this layer (unlike the word and phrase signals) is not a strict as-of backtest.
+    """
     c = conf_ordinal(conf_id)
     rows = con.execute(
         "SELECT q.*, t.title, t.conf_id AS origin_conf, s.name AS origin_speaker "
@@ -149,19 +156,24 @@ def quote_signals(con, conf_id):
         if any(here <= h and (grams & g or o == q["origin_talk_id"]) for o, h, g in seen):
             continue  # another piece of a passage already listed for the same talks
         seen.append((q["origin_talk_id"], here, grams))
-        repeated.append(quote_record(con, q, lineage, conf_id))
-    board = [quote_record(con, q) for q in leaderboard(con, 15, until_ord=c)]
-    recent = [quote_record(con, q) for q in leaderboard(con, 8, since_ord=c - BASELINE_N, until_ord=c)]
+        repeated.append(quote_record(con, q, lineage, conf_id, upto=conf_id))
+    board = [quote_record(con, q, upto=conf_id) for q in leaderboard(con, 15, until_ord=c)]
+    recent = [quote_record(con, q, upto=conf_id)
+              for q in leaderboard(con, 8, since_ord=c - BASELINE_N, until_ord=c)]
+    board, recent = [q for q in board if q["lineage"]], [q for q in recent if q["lineage"]]
     cited = top_cited(con, 10, conf_id, conf_id)
     return {"repeated": repeated, "all_time": board, "recent": recent, "cited_talks": cited}
 
 
-def quote_record(con, q, lineage=None, conf_id=None):
+def quote_record(con, q, lineage=None, conf_id=None, upto=None):
+    """Display record for a quote. upto (a conf_id) hides later talks from the lineage."""
     if lineage is None:
         lineage = [dict(r) for r in con.execute(
             "SELECT t.talk_id, t.conf_id, s.name AS speaker, t.title, t.session, u.words "
             "FROM quote_uses u JOIN talks t USING (talk_id) LEFT JOIN speakers s USING (speaker_id) "
             "WHERE u.quote_id=? ORDER BY t.talk_id", (q["quote_id"],))]
+    if upto:
+        lineage = [u for u in lineage if u["conf_id"] <= upto]
     origin = con.execute(
         "SELECT t.title, t.conf_id, s.name FROM talks t LEFT JOIN speakers s USING (speaker_id) "
         "WHERE t.talk_id=?", (q.get("origin_talk_id") or q["talk_id"],)).fetchone()
@@ -245,7 +257,7 @@ def talk_counts(con, conf_id):
     """Per talk of C: (row, Counter of 1-2-word terms, word total) from the tokenised text."""
     talks = [dict(r) for r in con.execute(
         "SELECT t.talk_id, t.calling_group, t.speaker_id, s.name AS speaker, t.word_count, "
-        "t.session, t.title FROM talks t LEFT JOIN speakers s USING (speaker_id) "
+        "t.session, t.title, t.role_raw FROM talks t LEFT JOIN speakers s USING (speaker_id) "
         "WHERE t.conf_id=? AND t.kind='address' ORDER BY t.talk_id", (conf_id,))]
     out = []
     for t in talks:
@@ -280,8 +292,11 @@ def talk_signals(con, conf_id, guards, per_talk):
         topics = [dict(r) for r in con.execute(
             "SELECT topic_id, COUNT(*) AS passages FROM chunk_topics WHERE talk_id=? "
             "AND topic_id >= 0 GROUP BY 1 ORDER BY 2 DESC, 1", (t["talk_id"],))]
+        passages = con.execute("SELECT COUNT(*) FROM chunk_topics WHERE talk_id=?",
+                               (t["talk_id"],)).fetchone()[0]
         out.append({"talk_id": t["talk_id"], "speaker": t["speaker"], "session": t["session"],
-                    "group": t["calling_group"], "words": t["word_count"],
+                    "group": t["calling_group"], "role": t["role_raw"], "words": t["word_count"],
+                    "passages": passages,
                     "topics": topics, "distinctive": distinctive})
     return out
 

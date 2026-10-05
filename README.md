@@ -295,8 +295,8 @@ For a future conference:
 1. Add it to the range: raise `LAST_API_CONF` in `src/conference_analysis/insights/config.py`
    once the Church has published the talks (until then, add its ldt-scribe session
    folders to `SESSIONS` in `scribe.py` and run `ingest-scribe`).
-2. When official text replaces a provisional conference, remove its entry from `SESSIONS`
-   (the provisional rows share the same `talk_id` range and must not coexist).
+2. When the official text is scraped it replaces the provisional rows of that conference
+   automatically (`ingest-scribe` then skips it).
 3. Run `scrape`, `index`, `topics assign`, `report <conf>`. Do **not** run `topics fit`
    again unless you intend a new topic-model version (trend lines are only comparable
    within one version).

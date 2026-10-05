@@ -156,6 +156,8 @@ def build(log=print):
             continue
         index = json.loads(index_path.read_text())
         sessions = sessions_from_index(index)
+        # official text replaces a provisional transcript of the same conference
+        delete_talk_rows(con, "conf_id=? AND source='scribe'", (conf_id,))
         ensure_conference(con, conf_id)
         for position, uri in enumerate(item_uris(index), 1):
             path = cache_path(uri)

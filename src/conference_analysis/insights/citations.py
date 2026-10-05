@@ -60,7 +60,7 @@ def book_names():
 
 def quoted_verses(norm, mask, formulas=frozenset()):
     """[(verse row id, run length)] for each scripture-quoted run of >= MIN_RUN words."""
-    index, _ = verse_index()
+    index, names = verse_index()
     toks = norm.split()
     out, i = [], 0
     while i < len(toks):
@@ -80,8 +80,14 @@ def quoted_verses(norm, mask, formulas=frozenset()):
             if votes:
                 top = max(votes.values())
                 # a run can span several verses: keep each verse matching nearly as well
-                for vid in sorted(v for v, n in votes.items() if n >= max(2, 0.6 * top)):
-                    out.append((vid, j - i))
+                kept = sorted(v for v, n in votes.items() if n >= max(2, 0.6 * top))
+                # the same passage in two books (Malachi 3 = 3 Nephi 24) counts once, under
+                # the book that comes first in the canon
+                best = {names[v][0] for v in kept if votes[v] >= 0.9 * top}
+                if len(best) > 1:
+                    first = names[min(v for v in kept if names[v][0] in best)][0]
+                    kept = [v for v in kept if names[v][0] == first or names[v][0] not in best]
+                out.extend((vid, j - i) for vid in kept)
         i = j
     return out
 

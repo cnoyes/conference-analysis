@@ -213,7 +213,8 @@ def leaderboard(con, limit=25, since_ord=-10**6, until_ord=10**6, own_words_only
 def display_text(con, para_id, tok_start, tok_end, max_words=MAX_WORDS):
     """The original wording (case, punctuation) of a token span, capped at max_words."""
     text = con.execute("SELECT text FROM paragraphs WHERE para_id=?", (para_id,)).fetchone()[0]
-    spans = [m.span() for m in re.finditer(r"[A-Za-z]+(?:['’][A-Za-z]+)*", text)]
+    # must split exactly like text.PIECE, or the span shifts ("1980s" is not a word)
+    spans = [m.span() for m in re.finditer(r"(?<![0-9A-Za-z])[A-Za-z]+(?:['’][A-Za-z]+)*", text)]
     tok_end = min(tok_end, tok_start + max_words, len(spans))
     if tok_start >= tok_end:
         return ""

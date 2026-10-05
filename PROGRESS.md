@@ -1,0 +1,11 @@
+# Progress (one line per loop iteration)
+
+- 2026-10-05 12:25 F0: content-API fetcher with on-disk cache started (newest conference first, 2.5 req/s); corpus builder + schema written against the partial cache.
+- 2026-10-05 12:40 F0: ldt-scribe ingest (37 provisional talks, callings from program.yaml); CLI skeleton.
+- 2026-10-05 12:55 F1: n-gram index + six-class signals; ad-hoc backtests pass for ministering / covenant path / let god prevail / think celestial. Found and fixed: n-grams crossing sentence ends, names leaking through the dictionary check, one-talk words ranking as Rising (added speaker-level z), fragments of longer phrases.
+- 2026-10-05 13:05 F0 done: scrape finished (111 conferences, 5,043 cached pages, 4,628 calls); second `scrape` makes 0 network calls; corpus-check within ±3 for all but 2 conferences (explained); 4 named speakers resolve to one id each.
+- 2026-10-05 13:10 F2: text-reuse quote index (7-word shingles, numpy) finds the Nelson joy quote unprompted (origin 2016-10, 11 later talks, all-time rank 14); citation graph matches the legacy CSVs (same top talks); verbatim scripture-quotation layer; stock formulas (Church name) excluded.
+- 2026-10-05 13:15 F3: BGE-large embeddings of 75,851 passages; UMAP+HDBSCAN gave 92 topics; labels via claude -p; assignment by frozen centroids.
+- 2026-10-05 13:20 F4: first report page; pytest green (34 tests).
+- 2026-10-05 13:30 Verifier round 1 (4 subagents): lexical counts 14/14 terms exact; report numbers 12/12 exact; topic junk 8/92 (3 unflagged → now flagged, 17 labels corrected in topics.REVIEWED). Defects found and fixed: overlapping-count bug in phrase counts (caught by a unit test), abbreviations splitting sentences, digits leaving stray tokens, repeated phrases in transcripts, one-talk "surges" counted as Fading, co-quoted sentences counted as New, scripture stitched with ellipses counted as a quote, quote counts covering more text than shown, whisper "©" hallucination paragraph.
+- 2026-10-05 13:40 F4 rewrite after the fresh-eyes reader: overview paragraph, talk-by-talk table, source names for quoted quotations, per-conference comparisons instead of 10-conference sums, seasonal (Easter) handling, plain-language labels. 38 tests green.

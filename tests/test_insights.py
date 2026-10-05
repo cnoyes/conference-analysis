@@ -127,6 +127,13 @@ def test_fragments_and_dedupe():
     assert [k["term"] for k in kept] == ["covenant path", "ministering"]
 
 
+def test_one_edit():
+    from conference_analysis.insights.signals import one_edit
+    assert one_edit("fulness", "fullness") and one_edit("worshiped", "worshipped")
+    assert one_edit("grace", "grade") and not one_edit("grace", "grace")
+    assert not one_edit("faith", "fruit")
+
+
 def test_split_passages_merges_short_paragraphs():
     paras = [(1, "one two three"), (2, " ".join(["w"] * MIN_WORDS)), (3, "tail")]
     passages = split_passages(paras)
@@ -161,10 +168,15 @@ def test_corpus_is_complete(con):
 
 @corpus
 def test_no_talk_double_counted(con):
-    dupes = con.execute(
-        "SELECT COUNT(*) FROM (SELECT conf_id, speaker_id, title FROM talks WHERE kind='address' "
-        "AND title != '' GROUP BY 1, 2, 3 HAVING COUNT(*) > 1)").fetchone()[0]
-    assert dupes == 0
+    two_sources = con.execute(
+        "SELECT COUNT(*) FROM (SELECT conf_id FROM talks GROUP BY conf_id "
+        "HAVING COUNT(DISTINCT source) > 1)").fetchone()[0]
+    assert two_sources == 0
+    same_text = con.execute(  # two addresses in one conference with the same third paragraph
+        "SELECT COUNT(*) FROM (SELECT t.conf_id, p.text FROM talks t JOIN paragraphs p USING (talk_id) "
+        "WHERE t.kind='address' AND p.position = 3 AND length(p.text) > 200 "
+        "GROUP BY 1, 2 HAVING COUNT(*) > 1)").fetchone()[0]
+    assert same_text == 0
 
 
 @corpus
@@ -205,13 +217,23 @@ def test_backtest(con, conf_id, term, allowed):
 
 
 @corpus
-def test_signals_hide_the_future(con):
-    """The window loaded for an as-of run holds no conference after it."""
-    from conference_analysis.insights.signals import Window
+def test_signals_hide_the_future():
+    """Deleting every later conference from the index must not change an as-of result."""
+    from conference_analysis.insights.signals import lexical_signals
+    own = connect()  # private connection: the deletion below is rolled back, never committed
     c = conf_ordinal("2018-04")
-    w = Window(con, c)
-    assert w.count.shape[1] == c - w.lo + 1
-    assert w.first.max() <= c
+    pick = lambda full: {cls: sorted(r["term"] for r in rs if r["count"] >= 8 or cls == "absent")
+                         for cls, rs in full.items()}
+    before = pick(lexical_signals(own, "2018-04", full=True))
+    try:
+        own.execute("DELETE FROM term_conf WHERE ord > ?", (c,))
+        own.execute("DELETE FROM conf_stats WHERE ord > ?", (c,))
+        after = pick(lexical_signals(own, "2018-04", full=True))
+    finally:
+        own.rollback()
+        own.close()
+    assert before == after
+    assert "ministering" in before["rising"]
 
 
 @corpus
@@ -239,12 +261,24 @@ def test_nelson_joy_quote_lineage(con):
 
 @corpus
 def test_scripture_is_not_a_talk_quote(con):
-    """No leaderboard quote is made of scripture text."""
-    from conference_analysis.insights.quotes import leaderboard
-    from conference_analysis.insights.text import scripture_mask
-    for row in leaderboard(con, 50):
-        toks = row["text"].split()
-        assert not any(scripture_mask(toks)), row["text"]
+    """No stored quote is mostly scripture wording (e.g. verses stitched with ellipses)."""
+    from conference_analysis.insights.quotes import SCRIPTURE_SHARE
+    from conference_analysis.insights.text import scripture_coverage
+    texts = [r[0] for r in con.execute(
+        "SELECT text FROM quotes ORDER BY later_speakers DESC LIMIT 300")]
+    assert texts and all(scripture_coverage(t.split()) < SCRIPTURE_SHARE for t in texts)
+
+
+@corpus
+def test_quote_display_matches_stored_span(con):
+    """The words shown for a quote are the words that were counted."""
+    from conference_analysis.insights.quotes import display_text
+    rows = con.execute(
+        "SELECT q.origin_para_id, q.tok_start, q.tok_end, q.text FROM quotes q "
+        "JOIN talks t ON t.talk_id = q.origin_talk_id WHERE t.provisional = 0").fetchall()
+    for para_id, a, b, text in rows:
+        shown = tokenize(display_text(con, para_id, a, b, max_words=10 ** 6))
+        assert shown == text.split(), (para_id, text)
 
 
 @corpus

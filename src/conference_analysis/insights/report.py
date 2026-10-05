@@ -48,6 +48,31 @@ def pct(x):
     return f"{100 * x:.1f}%"
 
 
+def usual(x):
+    """'about 3.7 per conference' or, for rare things, 'about once every 4 conferences'."""
+    if x <= 0:
+        return "never"
+    if x < 0.95:
+        return f"about once every {round(1 / x)} conferences"
+    return f"about {num(float(x))} per conference"
+
+
+def change_words(now, before):
+    """A plain-language size for a change, so sentences need no numbers."""
+    ratio = now / before if before else 99
+    if ratio >= 4:
+        return "several times the usual amount"
+    if ratio >= 1.8:
+        return "about double the usual amount"
+    if ratio >= 1.15:
+        return "somewhat more than usual"
+    if ratio > 0.85:
+        return "about the usual amount"
+    if ratio > 0.55:
+        return "somewhat less than usual"
+    return "half the usual amount or less"
+
+
 def show_term(term):
     """A lower-cased index term with sacred names capitalised for display."""
     shown = " ".join(PROPER.get(w, w) for w in term.split())
@@ -130,11 +155,43 @@ def label_new_topics(candidates):
         "distinct subject (for example a warning against some practice), \"story\" if they are "
         "one narrative or anecdote.\n\n" + "\n\n".join(blocks) +
         "\n\nReply with only a JSON array: [{\"cluster\": 0, \"label\": \"...\", \"kind\": \"subject\"}]")
-    for item in ask_json(prompt):
-        candidates[item["cluster"]].update(label=item["label"], kind=item["kind"])
+    try:
+        for item in ask_json(prompt):
+            if 0 <= item["cluster"] < len(candidates) and no_digits(item["label"]):
+                candidates[item["cluster"]].update(label=item["label"], kind=item["kind"])
+    except Exception:
+        pass  # the defaults below apply
     for c in candidates:
         c.setdefault("label", "Unlabelled group")
         c.setdefault("kind", "story")
+
+
+def label_talks(con, talks):
+    """A short subject label per talk, written by the LLM from the talk's text (cached).
+
+    A label, like a topic label: words only. Labels containing a digit are dropped.
+    """
+    for start in range(0, len(talks), 6):
+        batch = talks[start:start + 6]
+        blocks = []
+        for t in batch:
+            paras = [r[0] for r in con.execute(
+                "SELECT text FROM paragraphs WHERE talk_id=? ORDER BY position", (t["talk_id"],))]
+            blocks.append(f"Talk {t['talk_id']} ({t['speaker']}):\n" + unstutter("\n".join(paras)))
+        prompt = (
+            "Below are General Conference talks of The Church of Jesus Christ of Latter-day "
+            "Saints (machine transcripts, so expect small errors). For each talk write a plain "
+            "label of 5 to 12 words naming its main subject the way a church member would "
+            "describe it to a friend; if the talk makes an announcement, name what is announced. "
+            "Do not use any digits or dates. Do not quote the talk.\n\n" + "\n\n".join(blocks) +
+            "\n\nReply with only a JSON array: [{\"talk\": 11201, \"subject\": \"...\"}]")
+        try:
+            answers = {a["talk"]: a["subject"] for a in ask_json(prompt)}
+        except Exception:
+            answers = {}
+        for t in batch:
+            subject = answers.get(t["talk_id"], "")
+            t["subject"] = subject if no_digits(subject) else ""
 
 
 def name_sources(quotes):
@@ -167,8 +224,8 @@ def narrate(facts, conf_id):
         "members. Each item below is a finding computed from the talk texts, compared with the "
         "ten conferences before it. Write exactly one plain sentence per item (at most 30 "
         "words). Rules: do NOT include any number, digit, count or percentage - the page shows "
-        "the numbers next to your sentence; no statistics jargon; do not exaggerate - say "
-        "\"more than usual\" or \"less than usual\", not \"dominated\"; name speakers only when "
+        "the numbers next to your sentence; no statistics jargon; when an item has how_much, "
+        "use that wording for the size of the change, neither stronger nor weaker; name speakers only when "
         "the item lists them; when an item is marked single_speaker, say plainly that it comes "
         "from one talk; when an item names a likely_source, say the quotation comes from that "
         "source.\n\n"
@@ -189,8 +246,13 @@ def overview(signals, facts, conf_id):
     topics = [t for t in signals["topics"]["topics"] if not t["junk"]]
     material = {
         "headline_findings": [{k: v for k, v in f.items() if k not in ("stats", "fallback")} for f in facts],
-        "topics_discussed_more_than_usual": [t["label"] for t in movers(topics, up=True)],
-        "topics_discussed_less_than_usual": [t["label"] for t in movers(topics, up=False)],
+        "topics_discussed_more_than_usual": [
+            {"topic": t["label"], "how_much": change_words(t["share"], t["base_share"]),
+             "talks": "only two talks" if t["talks"] == 2 else "several talks"}
+            for t in movers(topics, up=True)],
+        "topics_discussed_less_than_usual": [
+            {"topic": t["label"], "how_much": change_words(t["share"], t["base_share"])}
+            for t in movers(topics, up=False)],
         "subjects_matching_no_long_running_topic": [
             {"subject": c["label"], "speakers": c["speakers"]} for c in signals["new_topics"]
             if c.get("kind") == "subject"],
@@ -199,12 +261,14 @@ def overview(signals, facts, conf_id):
         "phrases_rising": [r["term"] for r in lex["rising"][:8]],
         "phrases_fading": [r["term"] for r in lex["fading"][:6]],
         "books_of_scripture_quoted_more_than_usual": [
-            v["volume"] for v in sc["volumes"]
-            if v["quotes"] / max(sc["total_quotes"], 1)
+            {"book": v["volume"], "how_much": change_words(
+                v["quotes"] / max(sc["total_quotes"], 1),
+                v["base_quotes"] / max(sc["base_total_quotes"], 1))}
+            for v in sc["volumes"] if v["quotes"] / max(sc["total_quotes"], 1)
             > 1.3 * v["base_quotes"] / max(sc["base_total_quotes"], 1)],
-        "what_each_talk_emphasised": [
-            {"speaker": t["speaker"], "words": [d["term"] for d in t["distinctive"]]}
-            for t in signals["talks"]],
+        "subject_of_each_talk": [
+            {"speaker": t["speaker"], "subject": t.get("subject", ""),
+             "words": [d["term"] for d in t["distinctive"]]} for t in signals["talks"]],
     }
     prompt = (
         f"Below are findings computed from the texts of the {conf_name(conf_id)} General "
@@ -213,8 +277,9 @@ def overview(signals, facts, conf_id):
         "ninety words) for ordinary church members that ties related findings together - for "
         "example several findings about the same theme. Rules: use ONLY what is listed; do not "
         "include any number or digit; no statistics jargon; do not overstate - these are "
-        "modest shifts in emphasis; say \"one talk\" when something comes from a single "
-        "speaker.\n\n" + json.dumps(material, indent=1) +
+        "shifts in emphasis; describe the size of each change with the how_much wording "
+        "given, neither stronger nor weaker; say \"one talk\" when something comes from a single "
+        "speaker; mention what the President of the Church spoke about.\n\n" + json.dumps(material, indent=1) +
         "\n\nReply with only a JSON array containing one string: the paragraph.")
     try:
         text = ask_json(prompt)[0]
@@ -276,22 +341,22 @@ def tidy_quote(text):
 def term_row(r, ev, kind):
     """One phrase row: term, sparkline, plain numbers, evidence."""
     counts = ev.term_counts(r["term"])
-    history = [round(counts.get(o, (0, 0))[0] * 1e4 / ev.words[o], 3)
+    history = [round(counts.get(o, (0, 0))[0] * 1e4 / ev.words[o], 3) if o in ev.words else 0.0
                for o in range(ev.first_ord, ev.c + 1)]
     talks = ev.term_talks(r["term"])
     baseline = [(o, *counts.get(o, (0, 0))) for o in range(ev.c - BASELINE_N, ev.c)]
     base_uses = sum(b[1] for b in baseline)
-    usual = f"usually about {num(r['expected'])} per conference of this length"
+    usually = "usually " + usual(r["expected"]) + (" of this length" if r["expected"] >= 0.95 else "")
     if kind == "absent":
-        figures = f"Not used this time · {usual}"
+        figures = f"Not used this time · {usually}"
     elif kind == "fading":
         peak_uses, peak_speakers = counts.get(r["peak_ord"], (0, 0))
-        figures = (f"{plural(r['count'], 'use')} this time · peak of {peak_uses} uses by "
-                   f"{plural(peak_speakers, 'speaker')} in {ord_name(r['peak_ord'])}")
+        figures = (f"{plural(r['count'], 'use')} this time · at its most widespread, {peak_uses} uses "
+                   f"by {plural(peak_speakers, 'speaker')} in {ord_name(r['peak_ord'])}")
     elif kind == "new":
         figures = f"{plural(r['count'], 'use')} · {plural(r['speakers'], 'speaker')}"
     else:
-        figures = f"{plural(r['count'], 'use')} · {plural(r['speakers'], 'speaker')} · {usual}"
+        figures = f"{plural(r['count'], 'use')} · {plural(r['speakers'], 'speaker')} · {usually}"
     now = (f"<p>In {esc(conf_name(ev.conf_id))}: {plural(r['count'], 'use')} by "
            f"{plural(r['speakers'], 'speaker')}.</p>" + talk_list(talks)
            if r["count"] else f"<p>Not used in {esc(conf_name(ev.conf_id))}.</p>")
@@ -300,7 +365,9 @@ def term_row(r, ev, kind):
               + "".join(f"<li>{esc(ord_name(o))}: {plural(n, 'use')}, {plural(s, 'speaker')}</li>"
                         for o, n, s in baseline) + "</ul>"
               if base_uses else f"<p>Not used in any of the previous {BASELINE_N} conferences.</p>")
-    body = now + before + f"<p>First used in a conference talk in our records: {esc(ord_name(first))}.</p>"
+    origin = ("In use since at least " + ord_name(first) + ", where our records begin."
+              if first == ev.first_ord else "First used in a conference talk: " + ord_name(first) + ".")
+    body = now + before + f"<p>{esc(origin)}</p>"
     speakers = ", ".join(t[0].split(" (")[0] for t in talks[:6]) + (" …" if len(talks) > 6 else "")
     who = f'<div class="who">{esc(speakers)}</div>' if kind in ("new", "revived", "single") and talks else ""
     return (f'<div class="row"><div class="term">{esc(show_term(r["term"]))}{who}</div>'
@@ -347,7 +414,7 @@ def quote_block(q, conf_id, show_here=True):
     title = q["origin_title"].strip("“”")
     origin = f"{q['origin_speaker']}, “{title}”, {conf_name(q['origin_conf'])}"
     if q["origin_quoted"]:
-        source = (f"Source: {q['likely_source']} (named by an AI model). " if q.get("likely_source")
+        source = (f"Source: {q['likely_source']}. " if q.get("likely_source")
                   else "The speaker was quoting an earlier source. ")
         source += f"Earliest use in conference since 1971: {origin}"
     else:
@@ -362,19 +429,19 @@ def quote_block(q, conf_id, show_here=True):
         for u in q["lineage"]) + "</ul>"
     return (f'<div class="quote"><blockquote>“{esc(tidy_quote(q["text"]))}”</blockquote>'
             f'<p class="src">{esc(source)}</p>{here}'
-            f'<div class="fig">Used in {plural(q["later_talks"], "other talk")} by '
+            f'<div class="fig">Used in {plural(q["later_talks"], "talk")} since, by '
             f'{plural(q["later_speakers"], "speaker")}, '
             f'{esc(conf_name(q["first_use"]))} to {esc(conf_name(q["last_use"]))}</div>'
-            + details("Every other talk that used it", lineage) + "</div>")
+            + details("Every talk that has used it since", lineage) + "</div>")
 
 
 def scripture_table(rows, ev, label):
     body = "".join(
-        f"<tr><td>{esc(r['ref'])}</td><td>{r['talks']}</td><td>{num(r['base_per_conf'], 1)}</td><td>"
+        f"<tr><td>{esc(r['ref'])}</td><td>{r['talks']}</td><td>{usual(r['base_per_conf'])}</td><td>"
         + details("Talks", "<ul>" + "".join(f"<li>{esc(ev.talk_label(t))}</li>" for t in r["talk_ids"])
                   + "</ul>") + "</td></tr>" for r in rows)
     return (f'<div class="scroll"><table><thead><tr><th>{label}</th><th>Talks quoting it</th>'
-            f'<th>Usual number of talks per conference</th><th></th></tr></thead>'
+            f'<th>Talks usually quoting it</th><th></th></tr></thead>'
             f"<tbody>{body}</tbody></table></div>")
 
 
@@ -383,13 +450,25 @@ def headline_facts(signals):
     lex, sc = signals["lexical"], signals["scriptures"]
     topics = [t for t in signals["topics"]["topics"] if not t["junk"]]
     facts = []
+    president = [t for t in signals["talks"]
+                 if (t["role"] or "").lower().startswith("president of the church")]
+    if president:
+        facts.append({"finding": "what the President of the Church spoke about",
+                      "speaker": "President " + president[0]["speaker"],
+                      "subjects_of_his_talks": [t.get("subject") or "(no label)" for t in president],
+                      "fallback": f"President {president[0]['speaker']} spoke "
+                                  f"{'twice' if len(president) == 2 else 'in this conference'}.",
+                      "stats": f"{plural(len(president), 'talk')}, "
+                               f"{num(sum(t['words'] for t in president))} words"})
     for t in [t for t in movers(topics, up=True) if t["talks"] >= 3][:1]:
         facts.append({"finding": "topic discussed more than usual", "topic": t["label"],
+                      "how_much": change_words(t["share"], t["base_share"]),
                       "fallback": f"“{t['label']}” was discussed more than usual.",
                       "stats": f"{pct(t['share'])} of passages in {t['talks']} talks; "
                                f"{base_words(t).lower()} {pct(t['base_share'])}"})
     for t in movers(topics, up=False)[:1]:
         facts.append({"finding": "topic discussed less than usual", "topic": t["label"],
+                      "how_much": change_words(t["share"], t["base_share"]),
                       "fallback": f"“{t['label']}” was discussed less than usual.",
                       "stats": f"{pct(t['share'])} of passages; {base_words(t).lower()} "
                                f"{pct(t['base_share'])}"})
@@ -417,23 +496,24 @@ def headline_facts(signals):
                     "fallback": f"“{show_term(r['term'])}”: {finding}.",
                     "stats": f"{now}; previous {BASELINE_N} conferences {r['base_count']} uses in all"}
             if "surged" in finding:
-                fact["stats"] += f"; peak {ord_name(r['peak_ord'])}"
+                fact["stats"] += f"; most widespread in {ord_name(r['peak_ord'])}"
             if "one speaker" in finding:
                 fact["single_speaker"] = True
             facts.append(fact)
     for q in signals["quotes"]["repeated"][:1]:
         facts.append({"finding": "a long-established quotation repeated again this conference",
-                      "quote_first_words": " ".join(q["text"].split()[:14]),
+                      "quote_words_shown_on_page": tidy_quote(q["text"]),
                       "likely_source": q.get("likely_source") or q["origin_speaker"],
                       "repeated_by": sorted({u["speaker"] for u in q["here"]}),
                       "fallback": "A long-established quotation was repeated again.",
-                      "stats": f"used in {q['later_talks']} talks since {conf_name(q['origin_conf'])}"})
+                      "stats": f"repeated in {q['later_talks']} talks after its first use in "
+                               f"conference ({conf_name(q['origin_conf'])})"})
     shares = [(v, v["quotes"] / max(sc["total_quotes"], 1), v["base_quotes"] / max(sc["base_total_quotes"], 1))
               for v in sc["volumes"] if v["quotes"] >= 15]
     for v, now, before in sorted(shares, key=lambda s: s[2] / max(s[1], 1e-9))[:1]:
         if now >= 1.3 * before:
             facts.append({"finding": "a book of scripture quoted word-for-word more than usual",
-                          "book_of_scripture": v["volume"],
+                          "book_of_scripture": v["volume"], "how_much": change_words(now, before),
                           "fallback": f"The {v['volume']} was quoted more than usual.",
                           "stats": f"{pct(now)} of verse quotations; previous {BASELINE_N} "
                                    f"conferences {pct(before)}"})
@@ -570,7 +650,9 @@ def build_html(signals, ev):
     add("".join(topic_row(t, ev, top_share, first) for t in topics[:12]))
     line = lambda t, cls: (
         f"<p class='{cls}'><strong>{esc(t['label'])}</strong> <span class='fig'>{pct(t['share'])} of "
-        f"passages, usually {pct(t['base_share'])} · {plural(t['talks'], 'talk')}</span></p>")
+        f"passages, usually {pct(t['base_share'])}"
+        f"{' in conferences held in the same month' if t.get('seasonal') else ''} · "
+        f"{plural(t['talks'], 'talk')}</span></p>")
     add("<h3>Biggest changes from the previous ten conferences</h3><p class='blurb'>Largest change "
         "first. A topic raised by only two talks is included when those talks dwelt on it.</p>"
         "<div class='two'><div><p class='blurb'>Discussed more than usual</p>"
@@ -634,7 +716,16 @@ def build_html(signals, ev):
     add('<section id="s5"><h2>5. Quotations</h2>')
     add("<p class='blurb'>Found by looking for the same run of seven or more words in talks by "
         "different speakers, leaving out scripture. Where the earliest speaker we have was "
-        "already quoting someone, the page says so.</p>")
+        "already quoting someone, the page names the source; those source names were supplied "
+        "by an AI model and are not verified.</p>")
+    seen_here = set()
+    repeated = []
+    for q in qs["repeated"]:  # one entry per source and set of speakers (spelling can split one)
+        key = (q.get("likely_source") or q["quote_id"], tuple(sorted(u["speaker"] for u in q["here"])))
+        if key not in seen_here:
+            seen_here.add(key)
+            repeated.append(q)
+    qs["repeated"] = repeated
     add("<h3>Established quotations repeated this conference</h3>")
     add("".join(quote_block(q, conf_id) for q in qs["repeated"][:12]) or "<p class='none'>None found.</p>")
     add("<h3>For context</h3>")
@@ -659,16 +750,16 @@ def build_html(signals, ev):
     add(f"<p class='blurb'>Counted from verses quoted word-for-word in the talks (eight or more words "
         f"in a row matching the scriptures): {sc['total_quotes']} verse quotations this conference. "
         "A verse a speaker only mentions without quoting is not counted. A passage that appears in "
-        "two books (Malachi 3 is repeated in 3 Nephi 24) is listed under both.</p>")
+        "two books (Malachi 3 is repeated in 3 Nephi 24) is counted once, under the earlier book.</p>")
     add("<h3>Chapters quoted by the most talks</h3>" + scripture_table(sc["top_chapters"], ev, "Chapter"))
     add("<h3>Verses quoted by the most talks</h3>" + scripture_table(sc["top_verses"], ev, "Verse"))
     add("<h3>Changes</h3><div class='two'><div><p class='blurb'>Quoted by more talks than usual</p>"
         + ("".join(f"<p class='up'><strong>{esc(r['ref'])}</strong> <span class='fig'>{r['talks']} talks; "
-                   f"usually {num(r['base_per_conf'], 1)} per conference</span></p>"
+                   f"usually {usual(r['base_per_conf'])}</span></p>"
                    for r in sc["up"]) or "<p class='none'>None.</p>")
         + "</div><div><p class='blurb'>Often quoted before, not quoted this time</p>"
         + "".join(f"<p class='dn'><strong>{esc(r['ref'])}</strong> <span class='fig'>no talks; "
-                  f"usually {num(r['base_per_conf'], 1)} per conference</span></p>"
+                  f"usually {usual(r['base_per_conf'])}</span></p>"
                   for r in sc["down"]) + "</div></div>")
     add("<h3>By book of scripture</h3><div class='scroll'><table><thead><tr><th>Book of scripture</th>"
         f"<th>Verse quotations</th><th>Share this conference</th><th>Share, previous {BASELINE_N}</th>"
@@ -680,22 +771,29 @@ def build_html(signals, ev):
 
     # ---- 7 groups and talks
     add('<section id="s7"><h2>7. Who said what</h2>')
-    add("<h3>Talk by talk</h3><p class='blurb'>For each talk: the recurring topics most of its "
-        "passages matched, and the words it used far more than the other talks did (with how many "
-        "times).</p><div class='scroll'><table><thead><tr><th>Speaker</th><th>Main topics</th>"
-        "<th>Distinctive words</th></tr></thead><tbody>")
+    add("<h3>Talk by talk</h3><p class='blurb'>For each talk: its subject in a few words (a label "
+        "written by an AI model from the transcript), the recurring topics that a good share of "
+        "its passages matched, and the words it used far more than the other talks did (with how "
+        "many times).</p><div class='scroll'><table><thead><tr><th>Speaker</th><th>Subject</th>"
+        "<th>Topics matched</th><th>Distinctive words</th></tr></thead><tbody>")
+    own_subject = {tid: c["label"] for c in signals["new_topics"] if c.get("kind") == "subject"
+                   for tid in c["talk_ids"]}
     for t in signals["talks"]:
+        floor = max(2, 0.2 * t["passages"])  # a topic must cover a fifth of the talk to be listed
         main = [labels[x["topic_id"]]["label"] for x in t["topics"]
-                if not labels[x["topic_id"]]["junk"]][:2]
+                if not labels[x["topic_id"]]["junk"] and x["passages"] >= floor][:2]
+        if t["talk_id"] in own_subject:
+            main.insert(0, own_subject[t["talk_id"]] + " (fits no recurring topic)")
         words = ", ".join(f"{esc(show_term(d['term']))} ({d['count']})" for d in t["distinctive"])
         add(f"<tr><td>{esc(t['speaker'])}<div class='fig'>{esc(SESSION_SHORT.get(t['session'], t['session']))}"
-            f"</div></td><td>{esc('; '.join(main)) or '—'}</td><td>{words or '—'}</td></tr>")
+            f"</div></td><td>{esc(t.get('subject') or '—')}</td>"
+            f"<td>{esc('; '.join(main)) or '—'}</td><td>{words or '—'}</td></tr>")
     add("</tbody></table></div>")
     add("<h3>By calling</h3><p class='blurb'>The same measures grouped by the speaker's calling at "
         "this conference. “Distinctive words” are words a group used at a much higher rate than "
         "everyone else, allowing for how much each group spoke.</p>")
     for g in signals["groups"]:
-        shown = [t for t in g["topics"] if not labels[t["topic_id"]]["junk"]][:5]
+        shown = [t for t in g["topics"] if not labels[t["topic_id"]]["junk"] and t["passages"] >= 3][:5]
         add(f"<p><strong>{esc(GROUP_NAMES[g['group']])}</strong> <span class='fig'>{plural(g['talks'], 'talk')} · "
             f"{num(g['words'])} words</span></p>"
             + details("Speakers", "<p>" + esc(", ".join(g["speakers"])) + "</p>")
@@ -726,7 +824,9 @@ def build_html(signals, ev):
         f"own words, which is why rates are based on {num(ev.words[ev.c])} words and not the "
         f"{num(n_words)} spoken.</li>")
     add("<li><strong>Phrases.</strong> One- to five-word phrases are counted within sentences. "
-        "Phrases that begin or end with a filler word (the, of, and …) are skipped.</li>")
+        "Phrases that begin or end with a filler word (the, of, and …) are skipped. Scripture is "
+        "recognised from six or more words in a row, so a shorter scriptural phrase still counts "
+        "as the speaker's words.</li>")
     add("<li><strong>Thresholds.</strong> New: never used before, at least two speakers who are not "
         f"simply quoting the same sentence. Revived: absent for {BASELINE_N} conferences, at least three "
         "speakers. Rising: at least three speakers, at least 1.5 times the earlier rate, and a "
@@ -754,9 +854,11 @@ def build_html(signals, ev):
         "and small spelling differences can split one quotation's history in two. “Earliest use” "
         "means the earliest in conference talks since 1971; when that speaker was already quoting "
         "someone, an AI model was asked to name the well-known source, and that name is not "
-        "verified. Counts cover exactly the words shown (40 or fewer).</li>")
-    add("<li><strong>Sentences.</strong> The overview paragraph and headline sentences were written by "
-        "an AI model from the computed tables. Every number on this page was computed by code from "
+        "verified. Each count covers one matched passage of at most 40 words; the excerpt shown is "
+        "trimmed to whole sentences, so a counted talk may share the trimmed-off words.</li>")
+    add("<li><strong>Sentences and labels.</strong> The overview paragraph and headline sentences were "
+        "written by an AI model from the computed tables; the short subject label for each talk was "
+        "written by an AI model from the transcript. Every number on this page was computed by code from "
         "the talk texts; none was written by an AI model.</li>")
     add("<li><strong>Checking a number.</strong> Each count can be reproduced from the project "
         "database, for example <code>SELECT COUNT(*) FROM para_norm n JOIN talks t USING (talk_id) "
@@ -780,6 +882,7 @@ def write_report(conf_id, log=print):
     signals = compute_signals(conf_id, log)
     con = connect()
     label_new_topics(signals["new_topics"])
+    label_talks(con, signals["talks"])
     page = build_html(signals, Evidence(con, conf_id))
     REPORTS.mkdir(exist_ok=True)
     out = REPORTS / f"{conf_id}.html"
