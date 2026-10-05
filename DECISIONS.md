@@ -25,3 +25,16 @@
 - For a provisional conference, scripture use is measured from verbatim quotation in the text for every conference (like-for-like); speakers almost never say references aloud, so "inline references" alone would be nearly empty.
 - LLM (`claude -p`, cached in data/llm_cache/) is used for: topic labels + boilerplate flag, new-topic labels, headline sentences (rejected if they contain a digit), and screening listed terms for names/places/transcript noise. It never produces a number.
 - Report charts: sparklines in a neutral grey with the current conference as the single accent dot; ▲/▼ glyphs plus words carry direction, never colour alone.
+- Review round changes (2026-10-05): Continuing also requires the term to have been rare before (≤ 0.25 uses per 10k words), ≥ 5 uses in C and ≥ 10 over the run; a reader rightly objected to "tithing" and "quiet" being called newly entered.
+- Any term whose uses come > 60 % from one talk moves to single-speaker emphasis; a past surge counts toward Fading only with ≥ 5 speakers and ≤ 60 % from one talk; "peak" shown for Fading is the most widespread surge, not the all-time maximum.
+- New/Revived drop terms whose speakers share one 7-word passage around the term (one speaker quoting another is not adoption of a phrase).
+- Absent is withheld when the word was said inside a scripture quotation or in a one-letter spelling variant (fulness/fullness); plurals are treated as different words.
+- Stored quotes are capped at 40 words at build time so counts and shown text refer to the same passage; passages ≥ 60 % covered by 4-word scripture sequences are scripture, not quotes.
+- Parallel scripture passages (Malachi 3 / 3 Nephi 24) count once, under the book of the better match or the earlier book.
+- Topic labels: 3 more topics flagged as boilerplate and 17 relabelled after review (`topics.REVIEWED`); 8 of 92 are hidden.
+- Report: per-talk "topics matched" was removed (too noisy at ~12 passages per talk); each talk instead gets a 5–12-word subject label written by `claude -p` from its transcript. This is a label (like topic labels), not narration, and may not contain digits. It is what surfaces the Salt Lake Temple open-house announcement in the closing remarks.
+- Report sentences get the *size* of a change as code-chosen words ("about double the usual amount"), so the LLM needs no numbers and cannot understate or overstate.
+- Sources of quoted quotations ("Joseph Smith", "The Family: A Proclamation…") are named by `claude -p` and labelled unverified on the page.
+- LLM answers are parsed before they are cached, so a malformed reply is re-asked instead of poisoning the cache.
+- Official text replaces provisional rows automatically: `scrape` deletes a conference's scribe rows when the API has it, and `ingest-scribe` skips such a conference.
+- Quote layer is not a strict as-of backtest (quote tables are all-time; lineages are cut at C). Lexical signals are as-of except two guard inputs (≥ 2-talk index filter, all-time name/capitalisation evidence); `test_signals_hide_the_future` proves the classes are unchanged when later index rows are deleted.

@@ -53,6 +53,26 @@ def topic_signals(con, conf_id, model_topics):
     n_talks = con.execute("SELECT COUNT(*) FROM talks WHERE conf_id=? AND kind='address'",
                           (conf_id,)).fetchone()[0]
     info = {t["topic_id"]: t for t in model_topics}
+    words = dict(con.execute("SELECT ord, words FROM conf_stats"))
+    base_ords = [o for o in ords[base]]
+
+    def word_ratio(terms):
+        """Rate of the topic's five leading single words in C over their baseline rate.
+
+        An independent check on a topic move: passages can shift between neighbouring
+        topics while the subject's own words are used as much as ever.
+        """
+        keys = [t for t in terms if " " not in t][:5]
+        if not keys:
+            return 1.0
+        marks = ",".join("?" * len(keys))
+        counts = dict(con.execute(
+            f"SELECT tc.ord, SUM(tc.count) FROM term_conf tc JOIN terms USING (term_id) "
+            f"WHERE term IN ({marks}) AND tc.ord BETWEEN ? AND ? GROUP BY 1",
+            (*keys, base_ords[0] if base_ords else c, c)))
+        before = sum(counts.get(o, 0) for o in base_ords) / max(sum(words[o] for o in base_ords), 1)
+        return round((counts.get(c, 0) / words[c]) / before, 2) if before else 1.0
+
     out = []
     for i, topic_id in enumerate(topics):
         if topic_id < 0:
@@ -90,6 +110,7 @@ def topic_signals(con, conf_id, model_topics):
             "share": round(float(share[i, col]), 5), "talk_share": round(talks[i, col] / n_talks, 4),
             "base_passages": int(y_j), "base_share": round(float(base_share), 5),
             "older_share": round(float(older_share), 5), "z": round(z, 2), "seasonal": seasonal,
+            "word_ratio": word_ratio(info[topic_id]["terms"]),
             # one value per ordinal from the first conference to C (0 where one is missing)
             "history": [round(float(share[i, ords.index(o)]), 5) if o in ords else 0.0
                         for o in range(ords[0], c + 1)],

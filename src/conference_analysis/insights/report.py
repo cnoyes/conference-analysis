@@ -250,12 +250,12 @@ def overview(signals, facts, conf_id):
     material = {
         "headline_findings": [{k: v for k, v in f.items() if k not in ("stats", "fallback")} for f in facts],
         "topics_discussed_more_than_usual": [
-            {"topic": t["label"], "how_much": change_words(t["share"], t["base_share"]),
+            {"topic": t["label"], "how_much": honest_change(t),
              "talks": "only two talks" if t["talks"] == 2 else "several talks"}
             for t in movers(topics, up=True)],
-        "topics_discussed_less_than_usual": [
-            {"topic": t["label"], "how_much": change_words(t["share"], t["base_share"])}
-            for t in movers(topics, up=False)],
+        "topics_with_fewer_passages_mainly_about_them_though_still_mentioned": [
+            {"topic": t["label"], "how_much": honest_change(t)}
+            for t in movers(topics, up=False) if t["word_ratio"] <= 0.8],
         "subjects_matching_no_long_running_topic": [
             {"subject": c["label"], "speakers": c["speakers"]} for c in signals["new_topics"]
             if c.get("kind") == "subject"],
@@ -391,6 +391,14 @@ def base_words(t):
     return f"Previous {BASELINE_N} conferences"
 
 
+def honest_change(t):
+    """Size of a topic's move in words, from the smaller of two measures: its share of
+    passages and the rate of its most typical words."""
+    share = t["share"] / t["base_share"] if t["base_share"] else 99
+    ratio = min(share, t["word_ratio"]) if share >= 1 else max(share, t["word_ratio"])
+    return change_words(ratio, 1.0)
+
+
 def movers(topics, up):
     """Topics whose share moved most (in percentage points) against the comparison share."""
     if up:
@@ -403,7 +411,9 @@ def movers(topics, up):
 def topic_row(t, ev, top_share, first_ord):
     body = (f"<p>{t['passages']} of {ev.total_passages} passages ({pct(t['share'])}) in "
             f"{plural(t['talks'], 'talk')}. {base_words(t)}: {t['base_passages']} passages "
-            f"({pct(t['base_share'])}).</p>" + talk_list(ev.topic_talks(t["topic_id"]), "passage"))
+            f"({pct(t['base_share'])}). The topic's most typical words were used at "
+            f"{num(float(t['word_ratio']), 1)} times their usual rate.</p>"
+            + talk_list(ev.topic_talks(t["topic_id"]), "passage"))
     return (f'<div class="row"><div class="term">{esc(t["label"])}</div>'
             + spark([round(100 * h, 3) for h in t["history"]],
                     f"Share of each conference spent on “{t['label']}”", "% of passages", first_ord)
@@ -463,18 +473,22 @@ def headline_facts(signals):
                                   f"{'twice' if len(president) == 2 else 'in this conference'}.",
                       "stats": f"{plural(len(president), 'talk')}, "
                                f"{num(sum(t['words'] for t in president))} words"})
-    for t in [t for t in movers(topics, up=True) if t["talks"] >= 3][:1]:
+    # a topic move makes a headline only when the subject's own words moved the same way
+    for t in [t for t in movers(topics, up=True) if t["talks"] >= 3 and t["word_ratio"] >= 1.15][:1]:
         facts.append({"finding": "topic discussed more than usual", "topic": t["label"],
-                      "how_much": change_words(t["share"], t["base_share"]),
+                      "how_much": honest_change(t),
                       "fallback": f"“{t['label']}” was discussed more than usual.",
                       "stats": f"{pct(t['share'])} of passages in {t['talks']} talks; "
-                               f"{base_words(t).lower()} {pct(t['base_share'])}"})
-    for t in movers(topics, up=False)[:1]:
-        facts.append({"finding": "topic discussed less than usual", "topic": t["label"],
-                      "how_much": change_words(t["share"], t["base_share"]),
+                               f"{base_words(t).lower()} {pct(t['base_share'])}; its typical words "
+                               f"used at {num(float(t['word_ratio']), 1)} times the usual rate"})
+    for t in [t for t in movers(topics, up=False) if t["word_ratio"] <= 0.8][:1]:
+        facts.append({"finding": "fewer passages mainly about this topic, and its typical words "
+                                 "used less, though it was still mentioned",
+                      "topic": t["label"], "how_much": honest_change(t),
                       "fallback": f"“{t['label']}” was discussed less than usual.",
                       "stats": f"{pct(t['share'])} of passages; {base_words(t).lower()} "
-                               f"{pct(t['base_share'])}"})
+                               f"{pct(t['base_share'])}; its typical words used at "
+                               f"{num(float(t['word_ratio']), 1)} times the usual rate"})
     for cand in [c for c in signals["new_topics"] if c.get("kind") == "subject"][:1]:
         facts.append({"finding": "a subject that matched no long-running topic",
                       "subject": cand["label"], "speakers": cand["speakers"],
@@ -647,8 +661,8 @@ def build_html(signals, ev):
         f"sentences each ({tp['total_passages']} this conference, about a dozen per talk). Each "
         f"passage was matched to the closest of {sum(not t['junk'] for t in tp['topics'])} subjects "
         "that recur in conference talks since 1971. “2% of passages” means about one passage in "
-        "fifty was on that subject. On each bar, the black tick marks the share in earlier "
-        "conferences.</p><h3>Most-discussed topics</h3>")
+        "fifty was mainly on that subject. On each bar, the black tick marks the share in the "
+        "previous ten conferences.</p><h3>Most-discussed topics</h3>")
     top_share = max(t["share"] for t in topics[:12]) * 1.05
     add("".join(topic_row(t, ev, top_share, first) for t in topics[:12]))
     line = lambda t, cls: (
@@ -657,12 +671,14 @@ def build_html(signals, ev):
         f"{' in conferences held in the same month' if t.get('seasonal') else ''} · "
         f"{plural(t['talks'], 'talk')}</span></p>")
     add("<h3>Biggest changes from the previous ten conferences</h3><p class='blurb'>Largest change "
-        "first. A topic raised by only two talks is included when those talks dwelt on it. A topic "
+        "first. A topic counts only the passages that are mainly about it: a subject such as "
+        "repentance can be mentioned in passing in many talks and still have few passages of its "
+        "own. A topic raised by only two talks is included when those talks dwelt on it. A topic "
         "that rises and falls with the calendar is compared with earlier conferences held in the "
         "same month.</p>"
-        "<div class='two'><div><p class='blurb'>Discussed more than usual</p>"
+        "<div class='two'><div><p class='blurb'>More passages mainly about it than usual</p>"
         + ("".join(line(t, "up") for t in movers(topics, up=True)) or "<p class='none'>None.</p>")
-        + "</div><div><p class='blurb'>Discussed less than usual</p>"
+        + "</div><div><p class='blurb'>Fewer passages mainly about it than usual</p>"
         + ("".join(line(t, "dn") for t in movers(topics, up=False)) or "<p class='none'>None.</p>")
         + "</div></div>")
     absent = [t for t in topics if t["class"] == "absent"]
@@ -708,11 +724,13 @@ def build_html(signals, ev):
     add(lexical_block("Continuing: picked up recently and stuck", "Rare for years, took off "
                       "within the last few conferences, and still used this time by at least "
                       "three speakers.", lex["continuing"], ev, "continuing"))
-    add(lexical_block("Driven by one or two talks", "Stood out strongly, but at least half of "
-                      "the uses came from a single talk: a speaker's theme, not a conference-wide trend.",
+    add(lexical_block("Driven by one or two talks", "Stood out strongly, but half or more of "
+                      "the uses came from a single talk, or too few speakers used it: a speaker's "
+                      "theme, not a conference-wide trend.",
                       lex["single"], ev, "single", shown=14))
     add(lexical_block("Fading", "Surged across several talks in one of the previous six "
-                      "conferences and is now well under half of that peak.", lex["fading"], ev, "fading"))
+                      "conferences and is now well under half of that peak (unlike “Absent” below, "
+                      "these were short-lived surges, not regular vocabulary).", lex["fading"], ev, "fading"))
     add(lexical_block("Absent", f"Used in at least eight of the previous {BASELINE_N} conferences, "
                       "but not once this time.", lex["absent"], ev, "absent", shown=8))
     add("</section>")
