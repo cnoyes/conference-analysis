@@ -23,7 +23,9 @@ def read_talk(path):
     """A scribe talk file -> (front matter dict, list of paragraph strings)."""
     _, front, body = path.read_text().split("---\n", 2)
     paragraphs = [re.sub(r"\s+", " ", p).strip() for p in body.split("\n\n")]
-    return yaml.safe_load(front), [p for p in paragraphs if p and not p.startswith("#")]
+    # a "©" paragraph is a whisper hallucination ("© transcript ..."), never speech
+    return yaml.safe_load(front), [p for p in paragraphs
+                                   if p and not p.startswith("#") and "©" not in p]
 
 
 def callings(session_dir):

@@ -120,7 +120,7 @@ def new_topic_candidates(con, conf_id, cache):
         out.append({"passages": len(members), "speakers": speakers,
                     "talk_ids": sorted({m[1] for m in members}),
                     "chunk_ids": [m[0] for m in members],
-                    "samples": [" ".join(m[4].split()[:60]) for m in members[:4]]})
+                    "samples": [" ".join(m[4].split()[:60]) for m in members[:8]]})
     return sorted(out, key=lambda c: (-len(c["speakers"]), -c["passages"]))
 
 
@@ -213,14 +213,18 @@ def scripture_signals(con, conf_id):
         here, before = len(sides[0]), len(sides[1])
         z = float(log_odds_z(here, n_talks[c], before, base_talks,
                              (here + before) / (n_talks[c] + base_talks), prior=10.0))
-        ref = f"{key[0]} {key[1]}" + (f":{key[2]}" if len(key) > 2 else "")
+        book = key[0].replace("--", "—")
+        ref = f"{book} {key[1]}" + (f":{key[2]}" if len(key) > 2 else "")
+        if book == "Articles of Faith":  # one chapter; its "verses" are the thirteen articles
+            ref = book + (f" {key[2]}" if len(key) > 2 else "")
         return {"ref": ref, "book": key[0], "chapter": key[1], "verse": key[2] if len(key) > 2 else None,
                 "talks": here, "talk_ids": sorted(sides[0]), "base_talks": before,
                 "base_per_conf": round(before / BASELINE_N, 2), "z": round(z, 2)}
 
     chapter_rows = [record(k, v) for k, v in chapters.items()]
     verse_rows = [record(k, v) for k, v in verses.items()]
-    top = lambda rs: sorted((r for r in rs if r["talks"]), key=lambda r: (-r["talks"], r["ref"]))
+    top = lambda rs: sorted((r for r in rs if r["talks"]),
+                            key=lambda r: (-r["talks"], r["book"], r["chapter"], r["verse"] or 0))
     return {
         "talks": n_talks[c], "base_talks": base_talks,
         "top_chapters": top(chapter_rows)[:12], "top_verses": top(verse_rows)[:12],
@@ -237,38 +241,79 @@ def scripture_signals(con, conf_id):
 
 # ---------------------------------------------------------------- speaker groups
 
+def talk_counts(con, conf_id):
+    """Per talk of C: (row, Counter of 1-2-word terms, word total) from the tokenised text."""
+    talks = [dict(r) for r in con.execute(
+        "SELECT t.talk_id, t.calling_group, t.speaker_id, s.name AS speaker, t.word_count, "
+        "t.session, t.title FROM talks t LEFT JOIN speakers s USING (speaker_id) "
+        "WHERE t.conf_id=? AND t.kind='address' ORDER BY t.talk_id", (conf_id,))]
+    out = []
+    for t in talks:
+        paras = [r[0] for r in con.execute(
+            "SELECT clean FROM para_norm WHERE talk_id=? ORDER BY para_id", (t["talk_id"],))]
+        counts = Counter({term: n for term, n in talk_ngrams(paras).items() if term.count(" ") < 2})
+        out.append((t, counts, sum(len(p.replace("|", " ").split()) for p in paras)))
+    return out
+
+
+def talk_signals(con, conf_id, guards, per_talk):
+    """One line per talk of C: its leading topics and the words it used far more than the rest."""
+    total = sum((c for _, c, _ in per_talk), Counter())
+    all_words = sum(w for _, _, w in per_talk)
+    out = []
+    for t, counts, words in per_talk:
+        scored = []
+        for term, n in counts.items():
+            if n < 3 or words < 500:  # too short a talk (closing remarks) to characterise
+                continue
+            z = float(log_odds_z(n, words, total[term] - n, all_words - words,
+                                 total[term] / all_words, prior=5000.0))
+            if z >= 2.5 and not guards.reject(term):
+                scored.append((z, term, n))
+        distinctive, used = [], set()
+        for z, term, n in sorted(scored, reverse=True):
+            if not (set(term.split()) & used):  # skip "law of tithing" after "tithing"
+                distinctive.append({"term": term, "count": n})
+                used |= set(term.split())
+            if len(distinctive) == 4:
+                break
+        topics = [dict(r) for r in con.execute(
+            "SELECT topic_id, COUNT(*) AS passages FROM chunk_topics WHERE talk_id=? "
+            "AND topic_id >= 0 GROUP BY 1 ORDER BY 2 DESC, 1", (t["talk_id"],))]
+        out.append({"talk_id": t["talk_id"], "speaker": t["speaker"], "session": t["session"],
+                    "group": t["calling_group"], "words": t["word_count"],
+                    "topics": topics, "distinctive": distinctive})
+    return out
+
+
 def group_signals(con, conf_id):
-    """Per calling group in C: size, leading topics, and words used distinctively by the group."""
+    """Per calling group in C: size, leading topics, distinctive words; plus one line per talk."""
     c = conf_ordinal(conf_id)
     provisional = con.execute("SELECT provisional FROM conferences WHERE conf_id=?",
                               (conf_id,)).fetchone()[0]
     guards = Guards(con, c, provisional)
-    talks = con.execute(
-        "SELECT t.talk_id, t.calling_group, t.speaker_id, s.name, t.word_count FROM talks t "
-        "LEFT JOIN speakers s USING (speaker_id) WHERE t.conf_id=? AND t.kind='address'",
-        (conf_id,)).fetchall()
+    per_talk = talk_counts(con, conf_id)
     counts = {g: Counter() for g in GROUPS}
     users = {g: defaultdict(set) for g in GROUPS}
-    words = Counter()
-    for talk_id, group, speaker_id, _, _ in talks:
-        paras = [r[0] for r in con.execute(
-            "SELECT clean FROM para_norm WHERE talk_id=? ORDER BY para_id", (talk_id,))]
-        words[group] += sum(len(p.replace("|", " ").split()) for p in paras)
-        for term, n in talk_ngrams(paras).items():
-            if term.count(" ") < 2:
-                counts[group][term] += n
-                users[group][term].add(speaker_id)
+    words, raw_words = Counter(), Counter()
+    for t, talk_terms, n_words in per_talk:
+        group = t["calling_group"]
+        words[group] += n_words
+        raw_words[group] += t["word_count"]
+        for term, n in talk_terms.items():
+            counts[group][term] += n
+            users[group][term].add(t["speaker_id"])
     total = sum(counts.values(), Counter())
     all_words = sum(words.values())
     out = []
     for group in GROUPS:
-        members = [t for t in talks if t[1] == group]
+        members = [t for t, _, _ in per_talk if t["calling_group"] == group]
         distinctive = []
         for term, n in counts[group].items():
             if len(users[group][term]) < 2 or n < 4:
                 continue
             z = float(log_odds_z(n, words[group], total[term] - n, all_words - words[group],
-                                 total[term] / all_words, prior=500.0))
+                                 total[term] / all_words, prior=5000.0))
             if z >= 2.5 and not guards.reject(term):
                 distinctive.append({"term": term, "count": n, "speakers": len(users[group][term]),
                                     "rest_count": total[term] - n, "z": round(z, 2)})
@@ -280,8 +325,8 @@ def group_signals(con, conf_id):
         passages = con.execute(
             "SELECT COUNT(*) FROM chunk_topics k JOIN talks t USING (talk_id) "
             "WHERE t.conf_id=? AND t.calling_group=?", (conf_id, group)).fetchone()[0]
-        out.append({"group": group, "talks": len(members), "words": words[group],
-                    "speakers": sorted({m[3] for m in members}), "passages": passages,
+        out.append({"group": group, "talks": len(members), "words": raw_words[group],
+                    "speakers": sorted({m["speaker"] for m in members}), "passages": passages,
                     "distinctive": sorted(distinctive, key=lambda d: -d["z"])[:12],
                     "topics": topics})
-    return out
+    return {"groups": out, "talks": talk_signals(con, conf_id, guards, per_talk)}

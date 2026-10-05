@@ -133,7 +133,7 @@ def calling_group(role):
     return "Other"
 
 
-WORD = re.compile(r"[a-z]+(?:['’][a-z]+)*")
+WORD = re.compile(r"(?<![0-9a-z])[a-z]+(?:['’][a-z]+)*")  # "1980s" yields no stray "s"
 
 
 def tokenize(text):

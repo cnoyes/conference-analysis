@@ -13,10 +13,12 @@ from collections import defaultdict
 import numpy as np
 
 from .db import connect, tokenize
+from .text import scripture_coverage
 
 K = 7                 # shingle length in words
 MIN_LATER = 2         # a quote needs this many later talks by other speakers
 MIN_QUOTED = 0.5      # share of later (official-text) uses that sit inside quotation marks
+SCRIPTURE_SHARE = 0.6 # a passage this covered by 4-word scripture sequences is scripture
 MAX_WORDS = 40        # longest quote text shown anywhere
 MIN_WORDS = 9         # shorter shared passages are titles or fragments, not quotes
 
@@ -59,7 +61,7 @@ def load_tokens(con):
         quoted.extend(c == "1" for c in q)
         scripture.extend(c == "1" for c in s)
     return (np.array(ids, dtype=np.uint64), np.array(para), np.array(quoted),
-            np.array(scripture), paras)
+            np.array(scripture), paras, vocab)
 
 
 def shared_shingles(ids, para, scripture):
@@ -83,7 +85,7 @@ def shared_shingles(ids, para, scripture):
 def build_quotes(log=print):
     """Rebuild the quote tables from para_norm. Idempotent."""
     con = connect()
-    ids, para, quoted, scripture, paras = load_tokens(con)
+    ids, para, quoted, scripture, paras, vocab = load_tokens(con)
     talk = np.array([p[1] for p in paras])[para]
     speaker = np.array([p[2] for p in paras])[para]
     ordinal = np.array([p[3] for p in paras])[para]
@@ -101,6 +103,7 @@ def build_quotes(log=print):
         entry[0] |= bool(quoted[u + mid])
 
     con.executescript(SCHEMA)
+    words = {i: w for w, i in vocab.items()}
     quote_id = 0
     windows = sorted(users)
     i = 0
@@ -118,9 +121,13 @@ def build_quotes(log=print):
                 break
             core = set(users[run[best]])
             lo = hi = best
-            while lo > 0 and free[lo - 1] and len(core & set(users[run[lo - 1]])) >= 0.5 * len(core):
+            # grow while neighbours are reused by mostly the same talks, up to MAX_WORDS words,
+            # so the stored quote (and its counts) is exactly the text that gets shown
+            fits = lambda: hi - lo + K < MAX_WORDS
+            while lo > 0 and free[lo - 1] and fits() \
+                    and len(core & set(users[run[lo - 1]])) >= 0.5 * len(core):
                 lo -= 1
-            while hi + 1 < len(run) and free[hi + 1] \
+            while hi + 1 < len(run) and free[hi + 1] and fits() \
                     and len(core & set(users[run[hi + 1]])) >= 0.5 * len(core):
                 hi += 1
             for k in range(lo, hi + 1):
@@ -135,6 +142,8 @@ def build_quotes(log=print):
             if len(official) < MIN_LATER:
                 continue
             first, last = run[lo], run[hi] + K  # token span [first, last)
+            if scripture_coverage([words[t] for t in ids[first:last].tolist()]) >= SCRIPTURE_SHARE:
+                continue  # scripture stitched together with ellipses, not a talk quote
             p = paras[para[first]]
             quote_id += 1
             con.execute(
@@ -175,7 +184,8 @@ def leaderboard(con, limit=25, since_ord=-10**6, until_ord=10**6, own_words_only
 
     Quotes under MIN_WORDS words (titles, fragments) are skipped, and so is any quote reused
     by mostly the same talks as a higher-ranked one (another piece of the same passage;
-    its text is kept under the surviving row's "pieces").
+    its text is kept under the surviving row's "pieces"). Several passages that one origin
+    talk was itself quoting (a talk reading out a whole document) also count as one entry.
     """
     kept, kept_users = [], []
     for row in con.execute(LEADER_SQL, (MIN_QUOTED, since_ord, until_ord, limit * 20)):
@@ -185,7 +195,9 @@ def leaderboard(con, limit=25, since_ord=-10**6, until_ord=10**6, own_words_only
         users = {r[0] for r in con.execute(
             "SELECT talk_id FROM quote_uses WHERE quote_id=?", (row["quote_id"],))}
         same = next((k for k, other in zip(kept, kept_users)
-                     if len(users & other) >= 0.5 * min(len(users), len(other))), None)
+                     if len(users & other) >= 0.5 * min(len(users), len(other))
+                     or (k["talk_id"] == row["talk_id"] and k["origin_quoted"]
+                         and row["origin_quoted"])), None)
         if same:
             if same["talk_id"] == row["talk_id"]:
                 same["pieces"].append(row["text"])

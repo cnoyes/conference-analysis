@@ -6,17 +6,19 @@ conference is an honest backtest.
 Classes (precedence in this order; a term gets exactly one):
   new        never used before C, >= 2 speakers in C
   revived    used before, absent from the 10-conference baseline, >= 3 speakers in C
-  continuing a run of 2-7 consecutive conferences ending at C at >= 3x the term's earlier
-             rate (it entered recently and stuck), >= 3 speakers in C
+  continuing barely used before (<= 0.25 uses per 10k words), then a run of 2-7 consecutive
+             conferences ending at C at >= 3x that earlier rate (it entered recently and
+             stuck), >= 3 speakers in C
   rising     log-odds z-score (C vs baseline, informative Dirichlet prior) >= RISING_Z on
              use counts and >= BREADTH_Z on speaker counts, rate >= 1.5x baseline,
              >= 3 speakers in C
-  fading     was a burst (new, revived, continuing, or rising at >= 3x baseline, >= 3
-             speakers) in one of the previous 6 conferences and is now at <= 40% of its
+  fading     was a burst (new, revived, continuing, or rising at >= 3x baseline, >= 5
+             speakers, no single talk supplying most uses) in one of the previous 6 conferences and is now at <= 40% of its
              recent peak rate; seasonal words (low every other conference) are excluded
   absent     used in >= 8 of the 10 baseline conferences, expected >= 3 uses in C, used 0 times
-Terms that would be new or rising but have too few speakers (1 for new, 1-2 for rising)
-are reported apart as "single-speaker emphasis" (key 'single').
+Terms that would be new or rising but are not broad enough (1 speaker for new; too few
+speakers for rising), and terms of any class whose uses come mostly (> 60%) from one
+talk, are reported apart as "single-speaker emphasis" (key 'single').
 """
 import json
 
@@ -24,6 +26,7 @@ import numpy as np
 
 from .config import BASELINE_N, DATA
 from .db import conf_ordinal, connect
+from .ngrams import count_occurrences
 from .lexicon import in_dictionary
 from .text import scripture_shingles
 
@@ -32,11 +35,15 @@ PRIOR_WORDS = 1000   # alpha_0 of the Dirichlet prior, in pseudo-words
 RISING_Z = 3.0       # on use counts
 BREADTH_Z = 2.0      # on the number of speakers using the term
 RUN_FACTOR = 3.0     # "continuing": each run conference is >= this multiple of the earlier rate
+ENTRY_RATE = 0.25    # "continuing": earlier rate at most this (uses per 10k words, ~1 per conference)
 FADE_LOOKBACK = 6
+BURST_SPEAKERS = 5   # a past surge counts for "fading" only if this many speakers took part
 FADE_RATIO = 0.4
+MAX_TALK_SHARE = 0.6 # above this share of uses from one talk, a term is one talk's emphasis
 TOP = 40             # terms kept per class
 TITLES = {"president", "elder", "sister", "brother", "bishop", "presidents", "elders"}
 SPOKEN = {"quote", "unquote"}
+HONORIFICS = {"mr", "mrs", "ms", "dr"}
 PROPER_OK = {"familysearch", "justserve", "covid", "seminary", "primary"}
 CLASSES = ("new", "revived", "continuing", "rising", "fading", "absent")
 
@@ -99,12 +106,15 @@ class Window:
         return delta / np.sqrt(1 / (y_i + alpha) + 1 / (y_j + alpha))
 
     def run_length(self, p):
-        """Consecutive conferences ending at p at >= RUN_FACTOR x the pre-window rate."""
+        """Consecutive conferences ending at p at >= RUN_FACTOR x the pre-window rate.
+
+        Zero for terms that were already in regular use before the window.
+        """
         col = self.col(p)
         prior = self.rate[:, max(0, col - 26):max(0, col - 6)]
         prior_rate = prior.mean(axis=1) if prior.shape[1] else np.zeros(len(self.terms))
         run = np.zeros(len(self.terms), dtype=int)
-        alive = np.ones(len(self.terms), dtype=bool)
+        alive = prior_rate <= ENTRY_RATE  # "entered recently" means it was barely used before
         for k in range(col, max(-1, col - 8), -1):
             alive &= (self.count[:, k] > 0) & (self.rate[:, k] >= RUN_FACTOR * prior_rate)
             run += alive
@@ -122,15 +132,15 @@ class Window:
         run = self.run_length(p)
         cols = np.arange(self.count.shape[1])[None, :]
         run_total = (self.count * ((cols > col - run[:, None]) & (cols <= col))).sum(axis=1)
-        continuing = ((run >= 2) & (run <= 7) & (speakers >= 3) & (count >= 4)
-                      & (run_total >= 8) & ~new & ~revived)
+        continuing = ((run >= 2) & (run <= 7) & (speakers >= 3) & (count >= 5)
+                      & (run_total >= 10) & ~new & ~revived)
         zb = self.breadth_z(p)
         strong = (base > 0) & (z >= RISING_Z) & (count >= 4) & (self.rate[:, col] >= 1.5 * base_rate)
         rising = strong & (speakers >= 3) & (zb >= BREADTH_Z) & ~continuing
-        narrow = (strong & (speakers < 3)) | ((self.first == p) & (speakers == 1))
+        narrow = (strong & ~rising & ~continuing) | ((self.first == p) & (speakers == 1))
         burst = new | revived | continuing | (rising & (self.rate[:, col] >= 3 * base_rate))
         return {"new": new, "revived": revived, "continuing": continuing, "rising": rising,
-                "burst": burst & (speakers >= 3), "narrow": narrow & (count >= 5), "zb": zb,
+                "burst": burst & (speakers >= BURST_SPEAKERS), "narrow": narrow & (count >= 5), "zb": zb,
                 "z": z, "base_rate": base_rate, "run": run}
 
 
@@ -165,7 +175,7 @@ class Guards:
     def reject(self, term):
         """Reason this term may not be reported, or None."""
         toks = term.split()
-        if any(len(t) == 1 for t in toks) or any(self.is_name(t) for t in toks):
+        if any(len(t) == 1 or t in HONORIFICS for t in toks) or any(self.is_name(t) for t in toks):
             return "name"
         if any(t in TITLES for t in toks) and any(t.removesuffix("'s") in self.names for t in toks):
             return "name"
@@ -177,6 +187,44 @@ class Guards:
                 if not seen_before and not in_dictionary(t):
                     return "not a known word"
         return None
+
+
+class ConfText:
+    """The tokenised talks of a conference, loaded on demand, for per-talk checks."""
+
+    def __init__(self, con):
+        self.con, self.cache = con, {}
+
+    def talks(self, ordinal):
+        if ordinal not in self.cache:
+            talks = {}
+            for talk_id, clean in self.con.execute(
+                    "SELECT n.talk_id, n.clean FROM para_norm n JOIN talks t USING (talk_id) "
+                    "JOIN conferences c USING (conf_id) WHERE c.ordinal=?", (ordinal,)):
+                talks[talk_id] = talks.get(talk_id, "") + f" {clean} |"
+            self.cache[ordinal] = talks
+        return self.cache[ordinal]
+
+    def top_share(self, ordinal, term):
+        """Share of the conference's uses of term that come from its heaviest talk."""
+        needle = f" {term} "
+        uses = [count_occurrences(text, needle) for text in self.talks(ordinal).values()]
+        return max(uses) / sum(uses) if sum(uses) else 0.0
+
+    def shared_passage(self, ordinal, term):
+        """True when every talk using the term uses it inside one shared 7-word passage."""
+        needle, shared = f" {term} ", None
+        for text in self.talks(ordinal).values():
+            toks = text.split()
+            grams = set()
+            for i in range(len(toks)):
+                if " ".join(toks[i:i + needle.count(" ") - 1]) == term:
+                    lo = max(0, i - 6)
+                    grams.update(" ".join(toks[j:j + 7]) for j in range(lo, i + 1)
+                                 if "|" not in toks[j:j + 7] and len(toks[j:j + 7]) == 7)
+            if needle in f" {text} " or grams:
+                shared = grams if shared is None else shared & grams
+        return bool(shared)
 
 
 def fragments(terms, weight):
@@ -220,10 +268,13 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
 
     # fading: a recent burst that has fallen back
     burst = np.zeros(len(w.terms), dtype=bool)
+    peak = np.zeros(len(w.terms))          # highest rate among the burst conferences
+    peak_ord = np.zeros(len(w.terms), dtype=int)
     for p in range(max(w.lo + 4, c - FADE_LOOKBACK), c):
-        burst |= w.classes_at(p)["burst"]
-    recent = w.rate[:, max(0, col - FADE_LOOKBACK):col]
-    peak = recent.max(axis=1) if recent.shape[1] else np.zeros(len(w.terms))
+        here = w.classes_at(p)["burst"]
+        higher = here & (w.rate[:, w.col(p)] > peak)
+        peak[higher], peak_ord[higher] = w.rate[higher, w.col(p)], p
+        burst |= here
     current = now["new"] | now["revived"] | now["continuing"] | now["rising"]
     # seasonal words (Easter in April, Christmas in October) are not "fading" in the off season
     same = w.rate[:, [k for k in (col - 2, col - 4, col - 6) if k >= 0]].mean(axis=1)
@@ -242,11 +293,14 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
     }
     masks = dict(now, fading=fading, absent=absent, single=single)
     base_sum = w.count[:, b].sum(axis=1)
-    out = {}
+    out, demoted = {}, []
+    texts = ConfText(con)
     for cls in CLASSES + ("single",):
         weight = base_sum if cls in ("fading", "absent") else count
         fragment = fragments(w.terms, weight)
         idx = np.flatnonzero(masks[cls])
+        if cls == "single":  # plus terms of other classes whose uses were mostly one talk
+            idx = np.union1d(idx, np.array(demoted, dtype=int))
         idx = idx[np.argsort(-order[cls][idx], kind="stable")]
         records = []
         for i in idx:
@@ -257,6 +311,16 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
                 continue
             if provisional and cls in ("fading", "absent") and "'" in term:
                 continue  # possessives are spelled differently in transcripts
+            if cls == "fading" and texts.top_share(int(peak_ord[i]), term) > MAX_TALK_SHARE:
+                continue  # the "surge" was one talk
+            if cls in ("new", "revived") and texts.shared_passage(c, term):
+                continue  # speakers quoting the same sentence, not adopting a phrase
+            share = texts.top_share(c, term) if count[i] else 0.0
+            if cls in ("new", "revived", "continuing", "rising") and share > MAX_TALK_SHARE:
+                demoted.append(i)
+                continue  # most uses come from one talk: reported as single-speaker emphasis
+            if cls == "single" and speakers[i] >= 3 and share < 0.5:
+                continue  # broad but below the rising bar: not an emphasis, not a trend
             base_speakers = w.speakers[i, b]
             records.append({
                 "term": term, "n": int(w.n[i]), "class": cls,
@@ -268,7 +332,8 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
                 "peak_rate": round(float(peak[i]), 3),
                 "expected": round(float(expected[i]), 1),
                 "z": round(float(now["z"][i]), 2), "zb": round(float(now["zb"][i]), 2), "run": int(now["run"][i]),
-                "first_ord": int(w.first[i]),
+                "first_ord": int(w.first[i]), "top_talk_share": round(share, 2),
+                "peak_ord": int(peak_ord[i]),
                 "key": float(max(speakers[i], base_speakers.max() if base_speakers.size else 0)),
             })
         out[cls] = records if full else dedupe(records)[:top]
@@ -287,6 +352,36 @@ def signals_path(conf_id):
     return DATA / "signals" / f"{conf_id}.json"
 
 
+def screen_terms(lexical):
+    """Ask the LLM which listed terms are names, places or transcript noise; drop those.
+
+    Deterministic guards run first (see Guards); this catches what they cannot know, such
+    as a country name that is also a dictionary word. Returns {term: reason}. Cached.
+    """
+    from .llm import ask_json
+    terms = sorted({r["term"] for records in lexical.values() for r in records})
+    prompt = (
+        "These words and phrases were extracted automatically from talks at a Latter-day "
+        "Saint General Conference (possibly from a machine transcript). Mark each one:\n"
+        "  ok - a real word or phrase that could describe what a talk is about\n"
+        "  name - a person's name or part of one, including scripture names that are also "
+        "everyday first names (Luke, Adam, Mark, Ruth) and titles such as \"mr\"\n"
+        "  place - a city, country or other place name\n"
+        "  transcript - a speech-recognition error or a fragment that is not a real phrase\n"
+        "  filler - a spoken interjection (\"okay\") or a multi-word sentence fragment that is "
+        "not a phrase on its own (e.g. \"feel that way\", \"also revealed\", \"means we choose\")\n"
+        "Be conservative: when unsure, answer ok. Every ordinary single word (\"knows\", "
+        "\"helped\", \"simple\") is ok. Religious terms, titles of Church materials and "
+        "scripture place or people names used as subjects (Nephi, Alma, Zion) are ok.\n\n"
+        + "\n".join(terms) +
+        "\n\nReply with only a JSON object mapping every term to its mark.")
+    marks = ask_json(prompt)
+    dropped = {t: m for t, m in marks.items() if m != "ok" and t in terms}
+    for cls in lexical:
+        lexical[cls] = [r for r in lexical[cls] if r["term"] not in dropped]
+    return dropped
+
+
 def compute_signals(conf_id, log=print):
     """Compute every layer's signals for a conference and cache them as JSON."""
     from . import layers, topics
@@ -297,13 +392,15 @@ def compute_signals(conf_id, log=print):
         "provisional": con.execute("SELECT provisional FROM conferences WHERE conf_id=?",
                                    (conf_id,)).fetchone()[0],
         "lexical": lexical_signals(con, conf_id),
+        "screened_out": {},
         "topics": layers.topic_signals(con, conf_id, model_topics),
         "new_topics": layers.new_topic_candidates(con, conf_id, topics.load_cache()),
         "quotes": layers.quote_signals(con, conf_id),
         "scriptures": layers.scripture_signals(con, conf_id),
-        "groups": layers.group_signals(con, conf_id),
+        **layers.group_signals(con, conf_id),
         "topic_model": meta,
     }
+    result["screened_out"] = screen_terms(result["lexical"])
     path = signals_path(conf_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=1))

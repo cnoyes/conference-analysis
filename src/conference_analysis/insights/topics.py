@@ -29,6 +29,32 @@ MAX_WORDS = 300              # passages are truncated to this many words before 
 NO_TOPIC_QUANTILE = 0.10     # the loosest 10% of training passages count as "no topic"
 EMB_DIR = DATA / "embeddings" / MODEL.split("/")[-1]
 
+# Corrections from the review of v1 (see PROGRESS.md): topic id -> (label, boilerplate).
+# These topics group passages by register or by who is named rather than by subject, or
+# carried a label narrower than their contents. Applied on load; labels.json stays as is.
+REVIEWED = {
+    81: ("Quoting Church Leaders", True),
+    40: ("Scripture in the Lord's Voice", True),
+    47: ("Scripture Narratives and Visions", True),
+    36: ("Book of Mormon Passages", False),
+    83: ("Stories from the Worldwide Church", False),
+    70: ("Empty Tomb and Resurrection Accounts", False),
+    72: ("Early Church History and Martyrdom", False),
+    41: ("Old Testament Narratives", False),
+    59: ("Gethsemane and the Crucifixion", False),
+    85: ("Families Reaching the Temple", False),
+    89: ("Personal and Family Stories", False),
+    8: ("Sayings and Parables of Jesus", False),
+    44: ("Trusting God in Adversity", False),
+    60: ("Prophets and Continuing Revelation", False),
+    87: ("Missionary Work", False),
+    22: ("Loving God and Neighbor", False),
+    61: ("Sexual Purity and Media", False),
+    31: ("Holy Ghost and Revelation", False),
+    78: ("Joseph Smith and the First Vision", False),
+    79: ("The Book of Mormon as Scripture", False),
+}
+
 SCHEMA = """
 DROP TABLE IF EXISTS chunks;
 CREATE TABLE chunks (
@@ -253,6 +279,8 @@ def load_model():
     labels = json.loads((out / "labels.json").read_text()) if (out / "labels.json").exists() else {}
     for t in topics:
         t.update(labels.get(str(t["topic_id"]), {"label": ", ".join(t["terms"][:3]), "junk": False}))
+        if VERSION == "v1" and t["topic_id"] in REVIEWED:
+            t["label"], t["junk"] = REVIEWED[t["topic_id"]]
     return np.load(out / "centroids.npy"), topics, json.loads((out / "meta.json").read_text())
 
 

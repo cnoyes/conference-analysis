@@ -72,6 +72,33 @@ def test_doubled_words_collapse_only_when_asked():
         ["he", "said", "that"]
 
 
+def test_abbreviations_and_initials_do_not_end_sentences():
+    triples = tokens_with_quotes("President Dallin H. Oaks met Mr. Martin. He smiled.")
+    starts = [t[0] for t in triples if t[2]]
+    assert starts == ["president", "he"]
+
+
+def test_repeated_phrases_collapse_in_transcripts():
+    words = [t[0] for t in tokens_with_quotes("he replied he replied that it was was fine",
+                                              collapse_doubles=True)]
+    assert words == ["he", "replied", "that", "it", "was", "fine"]
+
+
+def test_digits_leave_no_stray_tokens():
+    assert tokenize("In the 1980s we had 3 sons") == ["in", "the", "we", "had", "sons"]
+
+
+def test_report_text_helpers():
+    from conference_analysis.insights.report import ord_name, show_term, tidy_quote, unstutter
+    assert ord_name(1) == "April 1971" and ord_name(112) == "October 2026"
+    assert ord_name(0) == "October 1970" and ord_name(-57) == "April 1942"
+    assert show_term("close to jesus christ") == "close to Jesus Christ"
+    assert unstutter("it is is an activity, he'd, he'd say") == "it is an activity, he'd say"
+    assert tidy_quote("judgment. They need love. It is") == "They need love."
+    assert tidy_quote("is not content with blessing his family alone") == \
+        "… is not content with blessing his family alone …"
+
+
 def test_clean_tokens_breaks_sentences_and_masks_scripture():
     toks = ["a", "b", "c", "d"]
     assert clean_tokens(toks, [True, False, True, False], [False] * 4) == ["a", "b", "|", "c", "d"]

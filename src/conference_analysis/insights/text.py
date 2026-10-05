@@ -16,7 +16,8 @@ from .config import SCRIPTURES_DB
 from .db import tokenize
 
 SCRIPTURE_N = 6
-PIECE = re.compile(r"[“”\".!?]|[a-z]+(?:['’][a-z]+)*")
+PIECE = re.compile(r"[“”\".!?]|(?<![0-9a-z])[a-z]+(?:['’][a-z]+)*")
+ABBREVIATIONS = {"mr", "mrs", "ms", "dr", "st", "jr", "sr", "vs", "no", "vol", "pp", "etc"}
 
 _scripture = None
 
@@ -36,11 +37,32 @@ def scripture_shingles():
     return _scripture
 
 
+_scripture4 = None
+
+
+def scripture_coverage(tokens):
+    """Share of tokens lying inside some 4-word sequence found in the standard works."""
+    global _scripture4
+    if _scripture4 is None:
+        con = sqlite3.connect(f"file:{SCRIPTURES_DB}?mode=ro", uri=True)
+        _scripture4 = set()
+        for (verse,) in con.execute("SELECT scripture_text FROM verses"):
+            toks = tokenize(verse)
+            _scripture4.update(" ".join(toks[i:i + 4]) for i in range(len(toks) - 3))
+    covered = [False] * len(tokens)
+    for i in range(len(tokens) - 3):
+        if " ".join(tokens[i:i + 4]) in _scripture4:
+            covered[i:i + 4] = [True] * 4
+    return sum(covered) / max(len(tokens), 1)
+
+
 def tokens_with_quotes(text, collapse_doubles=False):
     """[(token, inside_quotes, starts_sentence)] for one paragraph.
 
-    Quote state resets per paragraph. collapse_doubles drops an immediately repeated word
-    ("said, said") - a whisper artefact, used for provisional transcripts only.
+    Quote state resets per paragraph. A full stop after an initial or an abbreviation
+    ("Dallin H.", "Mr.") does not end the sentence. collapse_doubles drops an immediately
+    repeated word or 2-3-word phrase ("said, said", "he replied he replied") - a whisper
+    artefact, used for provisional transcripts only.
     """
     out, depth, start = [], False, True
     for piece in PIECE.findall(text.lower()):
@@ -51,13 +73,17 @@ def tokens_with_quotes(text, collapse_doubles=False):
         elif piece == '"':
             depth = not depth
         elif piece in ".!?":
-            start = True
+            last = out[-1][0] if out else ""
+            start = not (piece == "." and (len(last) == 1 or last in ABBREVIATIONS))
         else:
-            tok = piece.replace("’", "'")
-            if collapse_doubles and out and out[-1][0] == tok:
-                continue
-            out.append((tok, depth, start))
+            out.append((piece.replace("’", "'"), depth, start))
             start = False
+            if collapse_doubles:
+                words = [t[0] for t in out[-6:]]
+                for k in (1, 2, 3):
+                    if len(words) >= 2 * k and words[-k:] == words[-2 * k:-k]:
+                        del out[-k:]
+                        break
     return out
 
 
