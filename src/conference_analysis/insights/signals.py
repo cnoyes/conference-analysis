@@ -13,7 +13,7 @@ Classes (precedence in this order; a term gets exactly one):
              >= 3 speakers in C
   fading     was a burst (new, revived, continuing, or rising at >= 3x baseline, >= 3
              speakers) in one of the previous 6 conferences and is now at <= 40% of its
-             recent peak rate
+             recent peak rate; seasonal words (low every other conference) are excluded
   absent     used in >= 8 of the 10 baseline conferences, expected >= 3 uses in C, used 0 times
 Terms that would be new or rising but have too few speakers (1 for new, 1-2 for rising)
 are reported apart as "single-speaker emphasis" (key 'single').
@@ -225,14 +225,20 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
     recent = w.rate[:, max(0, col - FADE_LOOKBACK):col]
     peak = recent.max(axis=1) if recent.shape[1] else np.zeros(len(w.terms))
     current = now["new"] | now["revived"] | now["continuing"] | now["rising"]
-    fading = burst & (rate <= FADE_RATIO * peak) & ~current
+    # seasonal words (Easter in April, Christmas in October) are not "fading" in the off season
+    same = w.rate[:, [k for k in (col - 2, col - 4, col - 6) if k >= 0]].mean(axis=1)
+    other = w.rate[:, [k for k in (col - 1, col - 3, col - 5) if k >= 0]].mean(axis=1)
+    seasonal = same < FADE_RATIO * other
+    fading = burst & (rate <= FADE_RATIO * peak) & ~current & ~seasonal
     absent = (count == 0) & (base_confs >= min(8, b.stop - b.start)) & (expected >= 3) & ~fading
     single = now["narrow"]
 
     order = {
         "new": speakers * 1000 + count, "revived": speakers * 1000 + count,
         "continuing": now["z"], "rising": now["zb"] + now["z"] / 100,
-        "fading": (peak - rate) * w.words[col] / 1e4, "absent": expected, "single": count,
+        # how surprising the drop is: shortfall against the peak rate, in Poisson standard errors
+        "fading": (peak - rate) * w.words[col] / 1e4 / np.sqrt(np.maximum(peak * w.words[col] / 1e4, 1)),
+        "absent": expected, "single": count,
     }
     masks = dict(now, fading=fading, absent=absent, single=single)
     base_sum = w.count[:, b].sum(axis=1)
@@ -283,11 +289,25 @@ def signals_path(conf_id):
 
 def compute_signals(conf_id, log=print):
     """Compute every layer's signals for a conference and cache them as JSON."""
+    from . import layers, topics
     con = connect()
-    result = {"conf_id": conf_id, "lexical": lexical_signals(con, conf_id)}
+    centroids, model_topics, meta = topics.load_model()
+    result = {
+        "conf_id": conf_id,
+        "provisional": con.execute("SELECT provisional FROM conferences WHERE conf_id=?",
+                                   (conf_id,)).fetchone()[0],
+        "lexical": lexical_signals(con, conf_id),
+        "topics": layers.topic_signals(con, conf_id, model_topics),
+        "new_topics": layers.new_topic_candidates(con, conf_id, topics.load_cache()),
+        "quotes": layers.quote_signals(con, conf_id),
+        "scriptures": layers.scripture_signals(con, conf_id),
+        "groups": layers.group_signals(con, conf_id),
+        "topic_model": meta,
+    }
     path = signals_path(conf_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=1))
+    log(f"wrote {path}")
     return result
 
 
@@ -298,3 +318,20 @@ def print_signals(conf_id):
         for r in records[:20]:
             print(f"  {r['term']:<40} uses {r['count']:>3}  speakers {r['speakers']:>2}  "
                   f"rate {r['rate']:>6.2f}  baseline {r['base_rate']:>6.2f}  z {r['z']:>5.1f}")
+    topics = [t for t in result["topics"]["topics"] if not t["junk"]]
+    for cls in ("rising", "fading", "continuing", "absent"):
+        rows = sorted((t for t in topics if t["class"] == cls), key=lambda t: -abs(t["z"]))
+        print(f"\n== TOPICS {cls.upper()} ({len(rows)}) ==")
+        for t in rows[:12]:
+            print(f"  {t['label']:<40} passages {t['passages']:>3}  talks {t['talks']:>2}  "
+                  f"share {t['share']:.1%}  baseline {t['base_share']:.1%}  z {t['z']:>5.1f}")
+    print(f"\n== NEW-TOPIC CANDIDATES ({len(result['new_topics'])}) ==")
+    for cand in result["new_topics"]:
+        print(f"  {cand['passages']} passages, {', '.join(cand['speakers'])}: {cand['samples'][0][:90]}")
+    print(f"\n== QUOTES REPEATED ({len(result['quotes']['repeated'])}) ==")
+    for q in result["quotes"]["repeated"][:15]:
+        print(f"  {q['origin_speaker']} {q['origin_conf']} ({q['later_talks']} later talks): "
+              f"{q['text'][:90]}")
+    print("\n== SCRIPTURE CHAPTERS MOST QUOTED ==")
+    for r in result["scriptures"]["top_chapters"]:
+        print(f"  {r['ref']:<28} talks {r['talks']:>2}  baseline/conf {r['base_per_conf']}")

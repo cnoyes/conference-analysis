@@ -67,8 +67,11 @@ def parse_talk(data):
     role = soup.select_one("p.author-role")
     speaker_raw = clean_text(author) if author else ""
     role_raw = clean_text(role) if role else ""
-    m = re.search(r'"author":\{[^}]*"name":"([^"]+)"', meta.get("structuredData") or "")
-    speaker_clean = m[1].replace("\\u00a0", " ") if m else speaker_raw
+    try:  # the clean author name lives in the page's schema.org JSON
+        author_ld = json.loads(meta.get("structuredData") or "{}")["mainEntity"]["author"]
+        speaker_clean = " ".join(author_ld["name"].split())
+    except (KeyError, TypeError, ValueError):
+        speaker_clean = speaker_raw
 
     for junk in soup.select("header, footer, figure, video, .page-break"):
         junk.decompose()
@@ -164,6 +167,8 @@ def build(log=print):
             insert_talk(con, conf_ordinal(conf_id) * 100 + position, conf_id, uri,
                         sessions.get(uri, ""), position, parse_talk(data), "api")
             total += 1
+    con.execute("DELETE FROM speakers WHERE speaker_id NOT IN "
+                "(SELECT speaker_id FROM talks WHERE speaker_id IS NOT NULL)")
     con.commit()
     log(f"built {total} items from cache")
     return total

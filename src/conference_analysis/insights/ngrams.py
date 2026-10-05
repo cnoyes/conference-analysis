@@ -171,7 +171,7 @@ def count_occurrences(haystack, needle):
     count, start = 0, haystack.find(needle)
     while start != -1:
         count += 1
-        start = haystack.find(needle, start + len(needle) - 1)
+        start = haystack.find(needle, start + 1)
     return count
 
 

@@ -34,10 +34,13 @@ def main(argv=None):
         from .check import corpus_check
         corpus_check()
     elif args.cmd == "index":
+        from .citations import build_scripture_quotes, write_top_cited
         from .ngrams import build_index
         from .quotes import build_quotes
         build_index()
         build_quotes()
+        build_scripture_quotes()
+        write_top_cited()
     elif args.cmd == "topics":
         from . import topics
         topics.fit() if args.action == "fit" else topics.assign()

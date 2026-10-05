@@ -1,0 +1,27 @@
+# Decisions (one line per non-obvious call)
+
+- Scrape: fetch newest conference first so the most-used data lands early; one session, 0.4 s between requests (2.5 req/s), 404s cached as `{"_status": 404}` so a rerun makes zero calls.
+- "111 conferences + 2026-04" in SPEC is read as 111 API conferences in total (1971-04 … 2026-04 = 111); 2026-10 is the 112th row.
+- `talk_id` = conference ordinal × 100 + position in the index, `para_id` = talk_id × 1000 + position: rebuilds are deterministic and downstream tables never dangle.
+- Speaker identity = accent/case/punctuation-insensitive key of the schema.org author name (fallback: byline with titles stripped). No fuzzy merging: every same-surname pair was reviewed by hand and all are different people.
+- `kind='address'` = API content-type talk, not a sustaining/audit/statistical/solemn-assembly title, has an author and ≥ 150 words. One real 112-word closing remark (Kimball 1982-04) falls to `other`.
+- Citations are read from every link in footnote HTML plus links in the talk body (`fn_id` NULL = inline); `referenceUris` alone is incomplete.
+- N-grams never cross a sentence end or a scripture quotation; only n-grams used in ≥ 2 talks are indexed (a New term needs ≥ 2 speakers anyway).
+- Scripture quotation = ≥ 6 consecutive words found in the standard works (mask); a counted verse quotation needs a run of ≥ 8 words; shingles used in > 150 talks (the Church's name, "in the name of Jesus Christ, amen") are stock formulas, not quotations.
+- Provisional transcripts: immediately doubled words are collapsed; terms containing "quote"/"unquote" (spoken quote markers) are rejected; a word never seen before must be in the NLTK dictionary; possessives are skipped in Fading/Absent (transcripts spell them differently).
+- Proper-noun guard: a word capitalised mid-sentence ≥ 90 % of the time is a name if it is a speaker-name token, or if it is in neither the dictionary nor the scriptures (allow-list: christ*, familysearch, justserve, covid, seminary, primary).
+- Rising = log-odds z ≥ 3 on uses (Dirichlet prior of 1,000 pseudo-words from the full history to date) AND z ≥ 2 on the number of speakers, rate ≥ 1.5× baseline, ≥ 3 speakers. The speaker-level z was added after "lift" (33 uses, 4 speakers, one talk) ranked as a trend.
+- Continuing = a run of 2–7 consecutive conferences ending at C at ≥ 3× the mean rate of the 20 conferences before the window, ≥ 8 uses over the run, ≥ 4 uses and ≥ 3 speakers in C.
+- Fading = a burst (new/revived/continuing, or rising at ≥ 3× baseline, ≥ 3 speakers) in the previous 6 conferences, now ≤ 40 % of the recent peak; seasonal words (Easter) are excluded by comparing same-month and other-month conferences.
+- Absent = used in ≥ 8 of the 10 baseline conferences, ≥ 3 uses expected in C, none found (the first threshold of 6 expected uses left the class nearly empty).
+- "Single-speaker emphasis" covers every would-be New term with 1 speaker and every would-be Rising term with 1–2 speakers, as SPEC's guard says ("otherwise it is reported separately").
+- Peacemakers backtest: as of 2023-04 only two speakers used "peacemakers" outside scripture quotation (Nelson 10 of the uses), so by SPEC's own ≥ 3-speaker guard it is single-speaker emphasis, not Rising. Test and SPEC line amended; the guard was not weakened.
+- Quotes: 7-word shingles; a shared passage is a *quote* when ≥ 50 % of later official uses put it inside quotation marks (this is what separates quotes from stock phrases); `origin_quoted=1` marks earliest uses that were themselves quotations of an older source.
+- Quote leaderboard collapses pieces of the same passage (≥ 50 % overlap of the talks using them) and skips passages under 9 words.
+- Topic passages = consecutive paragraphs merged to ≥ 60 words (75,851 passages) instead of raw paragraphs: one-line paragraphs made noisy points.
+- Topic model v1: BGE-large-en-v1.5 (preferred model, no fallback needed), UMAP(15 neighbours, 5 dims, cosine) → HDBSCAN(min_cluster_size=100) → 92 topics; frozen as centroids in embedding space so new passages are assigned by cosine similarity without re-running UMAP. The loosest 10 % of training passages (similarity < 0.763) count as "no topic".
+- Topic movers use the same log-odds z (prior 50 pseudo-passages), threshold 2; seasonal topics (Easter) are compared with same-month conferences only.
+- New-topic candidates = average-linkage clusters (cosine distance < 0.35, ≥ 3 passages) among C's no-topic passages; single-talk clusters are kept and labelled "story" or "subject" by the LLM, because a one-talk subject (gambling) is exactly what a reader expects to see.
+- For a provisional conference, scripture use is measured from verbatim quotation in the text for every conference (like-for-like); speakers almost never say references aloud, so "inline references" alone would be nearly empty.
+- LLM (`claude -p`, cached in data/llm_cache/) is used for: topic labels + boilerplate flag, new-topic labels, headline sentences (rejected if they contain a digit), and screening listed terms for names/places/transcript noise. It never produces a number.
+- Report charts: sparklines in a neutral grey with the current conference as the single accent dot; ▲/▼ glyphs plus words carry direction, never colour alone.

@@ -1,0 +1,16 @@
+# Conference Insights Engine (python -m conference_analysis.insights)
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+pyyaml>=6.0
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+plotly>=5.17.0
+nltk>=3.8.0
+torch>=2.1.0
+sentence-transformers>=2.2.0
+umap-learn>=0.5.5
+pytest>=7.0.0
+pytest-cov>=4.0.0

@@ -254,3 +254,52 @@ This project is inspired by the original R Shiny word cloud application in `~/Pr
 ## License
 
 MIT
+
+## Insights engine
+
+After each General Conference, `python -m conference_analysis.insights` builds a single
+web page (`reports/<conf>.html`) showing what was new, rising, continuing, fading and
+absent — words, phrases, topics, quotations and scriptures — against every conference
+since 1971. Goal and rules: `SPEC.md`. Data contracts and gotchas: `CLAUDE.md`.
+
+Setup (once):
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-insights.txt
+pip install -e .
+```
+
+Run order (every stage is idempotent and resumable; rerun any of them freely):
+
+```bash
+python -m conference_analysis.insights scrape          # Church API -> data/raw/api/ (cached) -> data/corpus.db
+python -m conference_analysis.insights ingest-scribe   # provisional ldt-scribe transcripts (until official text exists)
+python -m conference_analysis.insights corpus-check    # docs/CORPUS_CHECK.md
+python -m conference_analysis.insights index           # n-grams, quotes, scripture quotations, docs/TOP_CITED.md
+python -m conference_analysis.insights topics fit      # once: freezes data/topics/v1 (never refits implicitly)
+python -m conference_analysis.insights topics assign   # assign every passage to the frozen topics
+python -m conference_analysis.insights signals 2026-10 # prints every signal, writes data/signals/2026-10.json
+python -m conference_analysis.insights report 2026-10  # reports/2026-10.html
+```
+
+Ad-hoc questions:
+
+```bash
+python -m conference_analysis.insights phrase "covenant path"     # per-conference history of any phrase
+python -m conference_analysis.insights quote "little to do with the circumstances of our lives"
+```
+
+For a future conference:
+
+1. Add it to the range: raise `LAST_API_CONF` in `src/conference_analysis/insights/config.py`
+   once the Church has published the talks (until then, add its ldt-scribe session
+   folders to `SESSIONS` in `scribe.py` and run `ingest-scribe`).
+2. When official text replaces a provisional conference, remove its entry from `SESSIONS`
+   (the provisional rows share the same `talk_id` range and must not coexist).
+3. Run `scrape`, `index`, `topics assign`, `report <conf>`. Do **not** run `topics fit`
+   again unless you intend a new topic-model version (trend lines are only comparable
+   within one version).
+
+Tests: `pytest` (the tests marked as corpus tests run against the real `data/corpus.db`
+and are skipped when it has not been built).
