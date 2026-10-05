@@ -50,6 +50,19 @@ def verse_index():
     return _verses
 
 
+def parallel_verses():
+    """Pairs of verses in different books that share text (Malachi 3:10 and 3 Nephi 24:10)."""
+    index, names = verse_index()
+    shared = Counter()
+    for verses in index.values():
+        if 2 <= len(verses) <= MAX_VERSES:
+            for a in verses:
+                for b in verses:
+                    if a < b and names[a][0] != names[b][0]:
+                        shared[frozenset((a, b))] += 1
+    return {pair for pair, n in shared.items() if n >= 3}
+
+
 def book_names():
     """URL book code ('2-ne') -> display title ('2 Nephi')."""
     con = sqlite3.connect(f"file:{SCRIPTURES_DB}?mode=ro", uri=True)
@@ -81,12 +94,11 @@ def quoted_verses(norm, mask, formulas=frozenset()):
                 top = max(votes.values())
                 # a run can span several verses: keep each verse matching nearly as well
                 kept = sorted(v for v, n in votes.items() if n >= max(2, 0.6 * top))
-                # the same passage in two books (Malachi 3 = 3 Nephi 24) counts once, under
-                # the book that comes first in the canon
-                best = {names[v][0] for v in kept if votes[v] >= 0.9 * top}
-                if len(best) > 1:
-                    first = names[min(v for v in kept if names[v][0] in best)][0]
-                    kept = [v for v in kept if names[v][0] == first or names[v][0] not in best]
+                # the same passage in two books (Malachi 3 = 3 Nephi 24) counts once: under
+                # the book of the best match, or the earlier book in the canon on a tie
+                if kept:
+                    book = names[min(v for v in kept if votes[v] == top)][0]
+                    kept = [v for v in kept if names[v][0] == book]
                 out.extend((vid, j - i) for vid in kept)
         i = j
     return out
@@ -109,10 +121,16 @@ def build_scripture_quotes(log=print):
             if shingle in index:
                 used_by.setdefault(shingle, set()).add(talk_id)
     formulas = {s for s, talks in used_by.items() if len(talks) > FORMULA_TALKS}
+    twins = parallel_verses()
     batch = []
     for para_id, talk_id, norm, mask in rows:
+        best = {}  # one row per verse and paragraph, however often it is quoted there
         for vid, words in quoted_verses(norm, mask, formulas):
-            batch.append((talk_id, para_id, *names[vid], words))
+            best[vid] = max(words, best.get(vid, 0))
+        for vid in sorted(best):  # a parallel passage counts once, under the earlier book
+            if any(frozenset((vid, other)) in twins for other in best if other < vid):
+                del best[vid]
+        batch += [(talk_id, para_id, *names[vid], words) for vid, words in best.items()]
     con.executemany("INSERT INTO scripture_quotes VALUES (?,?,?,?,?,?)", batch)
     con.commit()
     log(f"scripture quotes: {len(batch)} verse quotations ({len(formulas)} stock formulas ignored)")

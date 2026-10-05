@@ -203,6 +203,7 @@ def classes_as_of(con, conf_id, term):
 @pytest.mark.parametrize("conf_id, term, allowed", [
     ("2018-04", "ministering", {"new", "revived", "rising"}),
     ("2018-04", "covenant path", {"rising", "continuing"}),
+    ("2018-04", "solemn assembly", {"revived"}),
     ("2021-04", "let god prevail", {"new", "continuing"}),
     ("2024-04", "think celestial", {"new", "rising", "continuing"}),
     # SPEC deviation (see SPEC changelog): in April 2023 only two speakers used

@@ -53,7 +53,8 @@ def usual(x):
     if x <= 0:
         return "never"
     if x < 0.95:
-        return f"about once every {round(1 / x)} conferences"
+        every = round(1 / x)
+        return f"about once every {every} conferences" if every > 1 else "about once per conference"
     return f"about {num(float(x))} per conference"
 
 
@@ -68,9 +69,11 @@ def change_words(now, before):
         return "somewhat more than usual"
     if ratio > 0.85:
         return "about the usual amount"
-    if ratio > 0.55:
+    if ratio > 0.6:
         return "somewhat less than usual"
-    return "half the usual amount or less"
+    if ratio > 0.4:
+        return "about half the usual amount"
+    return "about a third of the usual amount or less"
 
 
 def show_term(term):
@@ -654,7 +657,9 @@ def build_html(signals, ev):
         f"{' in conferences held in the same month' if t.get('seasonal') else ''} · "
         f"{plural(t['talks'], 'talk')}</span></p>")
     add("<h3>Biggest changes from the previous ten conferences</h3><p class='blurb'>Largest change "
-        "first. A topic raised by only two talks is included when those talks dwelt on it.</p>"
+        "first. A topic raised by only two talks is included when those talks dwelt on it. A topic "
+        "that rises and falls with the calendar is compared with earlier conferences held in the "
+        "same month.</p>"
         "<div class='two'><div><p class='blurb'>Discussed more than usual</p>"
         + ("".join(line(t, "up") for t in movers(topics, up=True)) or "<p class='none'>None.</p>")
         + "</div><div><p class='blurb'>Discussed less than usual</p>"
@@ -703,8 +708,8 @@ def build_html(signals, ev):
     add(lexical_block("Continuing: picked up recently and stuck", "Rare for years, took off "
                       "within the last few conferences, and still used this time by at least "
                       "three speakers.", lex["continuing"], ev, "continuing"))
-    add(lexical_block("Emphasised by only a few speakers", "Stood out strongly, but mostly in one "
-                      "or two talks: a speaker's theme, not a conference-wide trend.",
+    add(lexical_block("Driven by one or two talks", "Stood out strongly, but at least half of "
+                      "the uses came from a single talk: a speaker's theme, not a conference-wide trend.",
                       lex["single"], ev, "single", shown=14))
     add(lexical_block("Fading", "Surged across several talks in one of the previous six "
                       "conferences and is now well under half of that peak.", lex["fading"], ev, "fading"))
@@ -729,9 +734,12 @@ def build_html(signals, ev):
     add("<h3>Established quotations repeated this conference</h3>")
     add("".join(quote_block(q, conf_id) for q in qs["repeated"][:12]) or "<p class='none'>None found.</p>")
     add("<h3>For context</h3>")
+    shown = {q["quote_id"] for q in qs["repeated"][:12]}
+    qs["all_time"] = [q for q in qs["all_time"] if q["quote_id"] not in shown]
+    qs["recent"] = [q for q in qs["recent"] if q["quote_id"] not in shown]
     add(details("The most-repeated quotations since 1971",
                 "<p>The passages repeated by the most different speakers across every conference "
-                "since 1971.</p>" + "".join(quote_block(q, conf_id, show_here=False) for q in qs["all_time"])))
+                "since 1971 (leaving out any already shown above).</p>" + "".join(quote_block(q, conf_id, show_here=False) for q in qs["all_time"])))
     add(details(f"The most-repeated lines first said in the last {BASELINE_N} conferences",
                 "".join(quote_block(q, conf_id, show_here=False) for q in qs["recent"])
                 or "<p>None yet.</p>"))
@@ -772,22 +780,13 @@ def build_html(signals, ev):
     # ---- 7 groups and talks
     add('<section id="s7"><h2>7. Who said what</h2>')
     add("<h3>Talk by talk</h3><p class='blurb'>For each talk: its subject in a few words (a label "
-        "written by an AI model from the transcript), the recurring topics that a good share of "
-        "its passages matched, and the words it used far more than the other talks did (with how "
-        "many times).</p><div class='scroll'><table><thead><tr><th>Speaker</th><th>Subject</th>"
-        "<th>Topics matched</th><th>Distinctive words</th></tr></thead><tbody>")
-    own_subject = {tid: c["label"] for c in signals["new_topics"] if c.get("kind") == "subject"
-                   for tid in c["talk_ids"]}
+        "written by an AI model from the transcript) and the words it used far more than the other "
+        "talks did (with how many times).</p><div class='scroll'><table><thead><tr><th>Speaker</th>"
+        "<th>Subject</th><th>Distinctive words</th></tr></thead><tbody>")
     for t in signals["talks"]:
-        floor = max(2, 0.2 * t["passages"])  # a topic must cover a fifth of the talk to be listed
-        main = [labels[x["topic_id"]]["label"] for x in t["topics"]
-                if not labels[x["topic_id"]]["junk"] and x["passages"] >= floor][:2]
-        if t["talk_id"] in own_subject:
-            main.insert(0, own_subject[t["talk_id"]] + " (fits no recurring topic)")
         words = ", ".join(f"{esc(show_term(d['term']))} ({d['count']})" for d in t["distinctive"])
         add(f"<tr><td>{esc(t['speaker'])}<div class='fig'>{esc(SESSION_SHORT.get(t['session'], t['session']))}"
-            f"</div></td><td>{esc(t.get('subject') or '—')}</td>"
-            f"<td>{esc('; '.join(main)) or '—'}</td><td>{words or '—'}</td></tr>")
+            f"</div></td><td>{esc(t.get('subject') or '—')}</td><td>{words or '—'}</td></tr>")
     add("</tbody></table></div>")
     add("<h3>By calling</h3><p class='blurb'>The same measures grouped by the speaker's calling at "
         "this conference. “Distinctive words” are words a group used at a much higher rate than "
@@ -835,7 +834,7 @@ def build_html(signals, ev):
         "times the earlier rate. Fading: a recent surge across several talks, now below 40% of "
         "its peak; seasonal words such as Easter are excluded. Absent: used in at least eight of "
         f"the previous {BASELINE_N} conferences, at least three uses expected, none found. Any word whose "
-        "uses come mostly (over 60%) from one talk is moved to “Emphasised by only a few speakers”.</li>")
+        "uses come mostly (over 60%) from one talk is moved to “Driven by one or two talks”.</li>")
     add("<li><strong>Left out.</strong> Speakers' names, names of people and places in stories, "
         "spoken markers such as “quote”, and words that are neither in a dictionary nor in any "
         "earlier talk (likely transcription errors). An AI model also screened the listed phrases "
