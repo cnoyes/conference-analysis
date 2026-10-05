@@ -193,6 +193,14 @@ deterministically, so ids are stable.
   by sha1 of passage text; ~4 min for the full corpus on the 3090, ~4 GB VRAM).
 - **LLM cache**: `data/llm_cache/` keyed by prompt. Deleting it re-asks `claude -p` and may
   change labels, screening and sentences (never numbers).
+- **Pre-1971 text** (`historical.py`, `ingest-historical`): 1,823 addresses 1942-04 → 1970-10
+  from the BYU Scripture Citation Index, cached in `data/raw/historical/byu/`; conference
+  ordinals are ≤ 0 (0 = 1970-10, −57 = 1942-04). October 1957 has no listing at the source
+  (HTTP 500). These talks feed phrase, quote and scripture history and topic assignment, not
+  the topic fit; quote origins there are worded "earliest use". Filter
+  `source != 'historical'` for anything meant to be 1971+.
+- **SPEC deviations** are listed in SPEC.md's changelog (peacemakers class, empty
+  Revived/Continuing for 2026-10, scripture measure on provisional text).
 - **Workspace hook gotcha**: a RankView safety hook blocks any Bash command that mentions
   the word for the SQLite CLI/module together with an SQL write keyword (even inside a
   heredoc that only edits a Python file). Edit such files with the Edit/Write tools and run

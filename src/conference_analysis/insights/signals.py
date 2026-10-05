@@ -26,6 +26,7 @@ talk, are reported apart as "single-speaker emphasis" (key 'single').
 import json
 
 import numpy as np
+from nltk.stem import PorterStemmer
 
 from .config import BASELINE_N, DATA
 from .db import conf_ordinal, connect
@@ -48,6 +49,7 @@ TITLES = {"president", "elder", "sister", "brother", "bishop", "presidents", "el
 SPOKEN = {"quote", "unquote"}
 HONORIFICS = {"mr", "mrs", "ms", "dr"}
 PROPER_OK = {"familysearch", "justserve", "covid", "seminary", "primary"}
+STEM = PorterStemmer().stem
 CLASSES = ("new", "revived", "continuing", "rising", "fading", "absent")
 
 
@@ -209,21 +211,21 @@ class ConfText:
         return self.cache[ordinal]
 
     def spoken(self, ordinal, term):
-        """True if the term occurs anywhere in the conference, scripture quotations and
-        near-identical spellings (fulness / fullness) included. Guards "absent"."""
+        """True if the term occurs anywhere in the conference, scripture quotations, other
+        forms of the word (car / cars, study / studying) and near-identical spellings
+        (fulness / fullness) included. Guards "absent"."""
         if ordinal not in self.norm:
             rows = self.con.execute(
                 "SELECT n.norm FROM para_norm n JOIN talks t USING (talk_id) "
                 "JOIN conferences c USING (conf_id) WHERE c.ordinal=?", (ordinal,))
-            text = " " + " | ".join(r[0] for r in rows) + " "
-            self.norm[ordinal] = (text, set(text.split()))
-        text, vocab = self.norm[ordinal]
-        if f" {term} " in text:
+            words = " | ".join(r[0] for r in rows).split()
+            stems = {w: STEM(w) for w in set(words)}
+            self.norm[ordinal] = (" " + " ".join(stems[w] for w in words) + " ", set(words))
+        stemmed, vocab = self.norm[ordinal]
+        if " " + " ".join(STEM(w) for w in term.split()) + " " in stemmed:
             return True
         return " " not in term and len(term) >= 5 and any(
-            abs(len(w) - len(term)) <= 1 and one_edit(w, term)
-            and w != term + "s" and term != w + "s"  # a plural is a different word
-            for w in vocab)
+            abs(len(w) - len(term)) <= 1 and one_edit(w, term) for w in vocab)
 
     def top_share(self, ordinal, term):
         """Share of the conference's uses of term that come from its heaviest talk."""

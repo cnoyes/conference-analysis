@@ -275,6 +275,7 @@ Run order (every stage is idempotent and resumable; rerun any of them freely):
 ```bash
 python -m conference_analysis.insights scrape          # Church API -> data/raw/api/ (cached) -> data/corpus.db
 python -m conference_analysis.insights ingest-scribe   # provisional ldt-scribe transcripts (until official text exists)
+python -m conference_analysis.insights ingest-historical  # optional, once: 1942-1970 talks (docs/PRE1971_SOURCES.md)
 python -m conference_analysis.insights corpus-check    # docs/CORPUS_CHECK.md
 python -m conference_analysis.insights index           # n-grams, quotes, scripture quotations, docs/TOP_CITED.md
 python -m conference_analysis.insights topics fit      # once: freezes data/topics/v1 (never refits implicitly)

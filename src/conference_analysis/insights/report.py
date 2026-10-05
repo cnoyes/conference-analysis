@@ -252,13 +252,6 @@ def overview(signals, facts, conf_id):
     material = {
         "headline_findings": [{k: v for k, v in f.items() if k not in ("stats", "fallback", "evidence")}
                               for f in facts],
-        "topics_discussed_more_than_usual": [
-            {"topic": t["label"], "how_much": honest_change(t),
-             "talks": "only two talks" if t["talks"] == 2 else "several talks"}
-            for t in movers(topics, up=True)],
-        "topics_with_fewer_passages_mainly_about_them_though_still_mentioned": [
-            {"topic": t["label"], "how_much": honest_change(t)}
-            for t in movers(topics, up=False) if t["word_ratio"] <= 0.8],
         "subjects_matching_no_long_running_topic": [
             {"subject": c["label"], "speakers": c["speakers"]} for c in signals["new_topics"]
             if c.get("kind") == "subject"],
@@ -371,8 +364,8 @@ def term_row(r, ev, kind):
               + "".join(f"<li>{esc(ord_name(o))}: {plural(n, 'use')}, {plural(s, 'speaker')}</li>"
                         for o, n, s in baseline) + "</ul>"
               if base_uses else f"<p>Not used in any of the previous {BASELINE_N} conferences.</p>")
-    origin = ("In use since at least " + ord_name(first) + ", where our records begin."
-              if first == ev.first_ord else "First used in a conference talk: " + ord_name(first) + ".")
+    origin = ("In use since at least " + ord_name(first) + "; our records begin in " + ord_name(ev.first_ord) + "."
+              if first < ev.first_ord + 10 else "First used in a conference talk: " + ord_name(first) + ".")
     body = now + before + f"<p>{esc(origin)}</p>"
     speakers = ", ".join(t[0].split(" (")[0] for t in talks[:6]) + (" …" if len(talks) > 6 else "")
     who = f'<div class="who">{esc(speakers)}</div>' if kind in ("new", "revived", "single") and talks else ""
@@ -399,7 +392,10 @@ def honest_change(t):
     passages and the rate of its most typical words."""
     share = t["share"] / t["base_share"] if t["base_share"] else 99
     ratio = min(share, t["word_ratio"]) if share >= 1 else max(share, t["word_ratio"])
-    return change_words(ratio, 1.0)
+    words = change_words(ratio, 1.0)
+    if share >= 1 and change_words(max(share, t["word_ratio"]), 1.0) != words:
+        words = words.replace("about ", "at least ")  # the other measure says more
+    return words
 
 
 def movers(topics, up):
@@ -523,7 +519,7 @@ def headline_facts(signals, ev):
              ("a word one speaker used again and again",
               [r for r in lex["single"] if r["speakers"] == 1 and r["term"] not in covered]),
              # only news if it was still in use at the previous conference
-             ("phrase that surged recently and has dropped away at this conference",
+             ("phrase that surged at a recent conference and has dropped away at this one",
               [r for r in sorted(lex["fading"][:8], key=lambda r: r["n"] == 1)  # phrases lead
                if ev.term_counts(r["term"]).get(ev.c - 1, (0, 0))[0]
                >= 0.4 * ev.term_counts(r["term"]).get(r["peak_ord"], (1, 0))[0]]))
@@ -714,8 +710,10 @@ def build_html(signals, ev):
         + "</div></div>")
     absent = [t for t in topics if t["class"] == "absent"]
     if absent:
-        add("<h3>Regular topics not touched this time</h3><p class='chips'>" + "".join(
-            f"<span>{esc(t['label'])} <span class='fig'>(usually {pct(t['base_share'])} of passages)"
+        add("<h3>Recurring topics with no passage of their own this time</h3><p class='blurb'>The subject "
+            "may still have come up in passing; no passage was mainly about it.</p><p class='chips'>" + "".join(
+            f"<span>{esc(t['label'])} <span class='fig'>(usually {pct(t['base_share'])} of passages"
+            f"{' in conferences held in the same month' if t.get('seasonal') else ''})"
             "</span></span>" for t in absent) + "</p>")
     add(f"<h3>Subjects that fit none of the recurring topics</h3><p class='blurb'>{tp['no_topic_passages']} "
         f"of {tp['total_passages']} passages were not close to any recurring topic. Where several "
@@ -772,6 +770,8 @@ def build_html(signals, ev):
         "different speakers, leaving out scripture. Where the earliest speaker we have was "
         "already quoting someone, the page names the source; those source names were supplied "
         "by an AI model and are not verified.</p>")
+    for name in ("repeated", "all_time", "recent"):  # a shorter match is a stock phrase
+        qs[name] = [q for q in qs[name] if len(q["text"].split()) >= 12]
     seen_here = set()
     repeated = []
     for q in qs["repeated"]:  # one entry per source and set of speakers (spelling can split one)
@@ -888,8 +888,9 @@ def build_html(signals, ev):
     add("<li><strong>Thresholds.</strong> New: never used before, at least two speakers who are not "
         f"simply quoting the same sentence. Revived: absent for {BASELINE_N} conferences, at least three "
         "speakers. Rising: at least three speakers, at least 1.5 times the earlier rate, and a "
-        "log-odds z-score (with an informative Dirichlet prior) of at least 3 on uses and 2 on "
-        "speakers. Continuing: hardly used before, then two to seven conferences in a row at three "
+        "rise in both uses and number of speakers well beyond ordinary conference-to-conference "
+        "variation (for the technically minded: a log-odds z-score of at least 3 on uses and 2 on "
+        "speakers). Continuing: hardly used before, then two to seven conferences in a row at three "
         "times the earlier rate. Fading: a recent surge across several talks, now below 40% of "
         "its peak; seasonal words such as Easter are excluded. Absent: used in at least eight of "
         f"the previous {BASELINE_N} conferences, at least three uses expected, none found. Any word whose "
@@ -900,16 +901,17 @@ def build_html(signals, ev):
         f"for names, places, sentence fragments and transcript noise and removed {len(dropped)}"
         + (": " + esc(", ".join(sorted(dropped))) if dropped else "") + ".</li>")
     add(f"<li><strong>Topics.</strong> {tm['passages']:,} passages from 1971 to April 2026 were grouped by "
-        f"meaning with a language model run locally ({esc(tm['model'])}) into {tm['topics']} groups; "
+        f"meaning by a text-similarity program run on our own computer into {tm['topics']} groups; "
         f"{sum(t['junk'] for t in tp['topics'])} of them are not subjects (greetings, closing "
         "testimonies, passages that mainly quote leaders or scripture) and are hidden. The groups "
         "are frozen so shares stay comparable between conferences. Topic names were written by an "
         "AI model and reviewed. A topic is matched by overall meaning, so a passage can land in a "
         "broad topic such as “Trusting God in Adversity” without using those words. Topic changes "
-        "listed use the same z-score (at least 1); with a few hundred passages per conference, "
+        "are listed when they exceed typical variation, but with a few hundred passages per conference, "
         "small shifts are within normal variation.</li>")
-    add("<li><strong>Quotations.</strong> Matching finds word-for-word reuse only, not paraphrase, "
-        "and small spelling differences can split one quotation's history in two. “Earliest use” "
+    add("<li><strong>Quotations.</strong> Matching finds word-for-word reuse only, not paraphrase; a talk "
+        "counts as using a quotation when it repeats any stretch of seven or more of its words, "
+        "so the counts include shortened and slightly reworded versions; and small spelling differences can split one quotation's history in two. “Earliest use” "
         "means the earliest in the conference talks we have; when that speaker was already quoting "
         "someone, an AI model was asked to name the well-known source, and that name is not "
         "verified. Each count covers one matched passage of at most 40 words; the excerpt shown is "
@@ -918,7 +920,7 @@ def build_html(signals, ev):
         "written by an AI model from the computed tables; the short subject label for each talk was "
         "written by an AI model from the transcript. Every number on this page was computed by code from "
         "the talk texts; none was written by an AI model.</li>")
-    add("<li><strong>Checking a number.</strong> Each count can be reproduced from the project "
+    add("<li><strong>Checking a number (for programmers).</strong> Each count can be reproduced from the project "
         "database, for example <code>SELECT COUNT(*) FROM para_norm n JOIN talks t USING (talk_id) "
         f"WHERE t.conf_id='{conf_id}' AND instr(' '||n.clean||' ', ' tithing ')&gt;0</code> for the "
         "paragraphs using a word, or <code>python -m conference_analysis.insights phrase "
