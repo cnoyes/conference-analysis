@@ -314,7 +314,11 @@ def lexical_signals(con, conf_id, top=TOP, full=False):
     same = w.rate[:, [k for k in (col - 2, col - 4, col - 6) if k >= 0]].mean(axis=1)
     other = w.rate[:, [k for k in (col - 1, col - 3, col - 5) if k >= 0]].mean(axis=1)
     seasonal = same < FADE_RATIO * other
-    fading = burst & (rate <= FADE_RATIO * peak) & ~current & ~seasonal
+    # news only if it was still elevated at one of the last three conferences, and the word is
+    # not everyday vocabulary that merely had one big conference
+    recent = w.rate[:, max(col - 3, 0):col].max(axis=1) >= FADE_RATIO * peak
+    regular = base_confs >= b.stop - b.start
+    fading = burst & (rate <= FADE_RATIO * peak) & ~current & ~seasonal & recent & ~regular
     absent = (count == 0) & (base_confs >= min(8, b.stop - b.start)) & (expected >= 3) & ~fading
     single = now["narrow"]
 
@@ -418,6 +422,30 @@ def screen_terms(lexical):
     return dropped
 
 
+def screen_distinctive(rows):
+    """Drop filler from the 'distinctive words' lists (LLM, cached), then trim them."""
+    from .llm import ask_json
+    terms = sorted({d["term"] for row in rows for d in row["distinctive"]})
+    prompt = (
+        "These words and phrases are candidates for 'words this speaker used far more than "
+        "the other speakers' at a Latter-day Saint General Conference. Mark each one:\n"
+        "  ok - tells a reader something about the subject of the talk (tithing, temple, "
+        "gambling, quiet, covenant, mission leaders)\n"
+        "  filler - an everyday verb, adverb or function-like word that says nothing about the "
+        "subject (get, like, says, else, somehow, stated, things), a form of address (elder, "
+        "brother), or half of a fixed name (mormon, holy, book)\n\n"
+        + "\n".join(terms) +
+        "\n\nReply with only a JSON object mapping every term to its mark.")
+    try:
+        marks = ask_json(prompt)
+    except Exception:
+        marks = {}
+    for row in rows:
+        limit = 4 if "talk_id" in row else 12  # a talk's line or a calling group's
+        row["distinctive"] = [d for d in row["distinctive"]
+                              if marks.get(d["term"], "ok") == "ok"][:limit]
+
+
 def compute_signals(conf_id, log=print):
     """Compute every layer's signals for a conference and cache them as JSON."""
     from . import layers, topics
@@ -438,6 +466,7 @@ def compute_signals(conf_id, log=print):
         "topic_model": meta,
     }
     result["screened_out"] = screen_terms(result["lexical"])
+    screen_distinctive(result["talks"] + result["groups"])
     path = signals_path(conf_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, indent=1))

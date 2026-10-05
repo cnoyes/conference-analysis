@@ -87,7 +87,11 @@ def topic_signals(con, conf_id, model_topics):
         off = [k for k in range(col - 1, max(-1, col - BASELINE_N - 1), -2)]
         same_share = passages[i, same].sum() / max(totals[same].sum(), 1)
         off_share = passages[i, off].sum() / max(totals[off].sum(), 1)
-        seasonal = bool((same_share < off_share / 3 or off_share < same_share / 3) and y_j >= 30)
+        # ... and only when the pattern repeats year after year, not when one talk made it
+        heavy, light = (same, off) if same_share > off_share else (off, same)
+        seasonal = bool((same_share < off_share / 3 or off_share < same_share / 3) and y_j >= 30
+                        and np.median(passages[i, heavy]) >= 5
+                        and np.median(passages[i, heavy]) >= 3 * np.median(passages[i, light]))
         if seasonal:
             y_j, base_share = passages[i, same].sum(), same_share
             z = float(log_odds_z(y_i, totals[col], y_j, totals[same].sum(),
@@ -307,7 +311,7 @@ def talk_counts(con, conf_id):
     for t in talks:
         paras = [r[0] for r in con.execute(
             "SELECT clean FROM para_norm WHERE talk_id=? ORDER BY para_id", (t["talk_id"],))]
-        counts = Counter({term: n for term, n in talk_ngrams(paras).items() if term.count(" ") < 2})
+        counts = Counter({term: n for term, n in talk_ngrams(paras).items() if term.count(" ") < 3})
         out.append((t, counts, sum(len(p.replace("|", " ").split()) for p in paras)))
     return out
 
@@ -327,11 +331,12 @@ def talk_signals(con, conf_id, guards, per_talk):
             if z >= 2.5 and not guards.reject(term):
                 scored.append((z, term, n))
         distinctive, used = [], set()
-        for z, term, n in sorted(scored, reverse=True):
+        # equal scores: the longer phrase wins ("book of mormon" over "mormon")
+        for z, term, n in sorted(scored, key=lambda s: (-round(s[0], 1), -s[1].count(" "), s[1])):
             if not (set(term.split()) & used):  # skip "law of tithing" after "tithing"
                 distinctive.append({"term": term, "count": n})
                 used |= set(term.split())
-            if len(distinctive) == 4:
+            if len(distinctive) == 8:  # screen_distinctive trims to four
                 break
         topics = [dict(r) for r in con.execute(
             "SELECT topic_id, COUNT(*) AS passages FROM chunk_topics WHERE talk_id=? "
@@ -342,6 +347,16 @@ def talk_signals(con, conf_id, guards, per_talk):
                     "group": t["calling_group"], "role": t["role_raw"], "words": t["word_count"],
                     "passages": passages,
                     "topics": topics, "distinctive": distinctive})
+    return out
+
+
+def no_overlap(distinctive):
+    """Highest score first, longer phrase first on ties, no word shown twice."""
+    out, used = [], set()
+    for d in sorted(distinctive, key=lambda d: (-round(d["z"], 1), -d["term"].count(" "), d["term"])):
+        if not (set(d["term"].split()) & used):
+            out.append(d)
+            used |= set(d["term"].split())
     return out
 
 
@@ -386,6 +401,6 @@ def group_signals(con, conf_id):
             "WHERE t.conf_id=? AND t.calling_group=?", (conf_id, group)).fetchone()[0]
         out.append({"group": group, "talks": len(members), "words": raw_words[group],
                     "speakers": sorted({m["speaker"] for m in members}), "passages": passages,
-                    "distinctive": sorted(distinctive, key=lambda d: -d["z"])[:12],
+                    "distinctive": no_overlap(distinctive)[:24],
                     "topics": topics})
     return {"groups": out, "talks": talk_signals(con, conf_id, guards, per_talk)}

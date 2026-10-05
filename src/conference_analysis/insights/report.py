@@ -80,6 +80,8 @@ def change_words(now, before):
 
 def show_term(term):
     """A lower-cased index term with sacred names capitalised for display."""
+    if term == "come follow":  # the index drops the closing "me" as a filler word
+        return "Come, Follow Me"
     shown = " ".join(PROPER.get(w, w) for w in term.split())
     return shown.replace("Heavenly father", "Heavenly Father")
 
@@ -492,6 +494,15 @@ def headline_facts(signals, ev):
                                f"{base_words(t).lower()} {pct(t['base_share'])}; its typical words "
                                f"used at {num(float(t['word_ratio']), 1)} times the usual rate",
                       "evidence": topic_evidence(t, ev)})
+    for t in [t for t in movers(topics, up=True)
+              if t["talks"] == 2 and min(t["word_ratio"], t["share"] / max(t["base_share"], 1e-9)) >= 2][:1]:
+        facts.append({"finding": "topic that only two talks dwelt on, but far more than usual",
+                      "topic": t["label"], "how_much": honest_change(t),
+                      "fallback": f"Two talks dwelt on “{t['label']}”, far more than usual.",
+                      "stats": f"{pct(t['share'])} of passages in {t['talks']} talks; "
+                               f"{base_words(t).lower()} {pct(t['base_share'])}; its typical words "
+                               f"used at {num(float(t['word_ratio']), 1)} times the usual rate",
+                      "evidence": topic_evidence(t, ev)})
     for t in [t for t in movers(topics, up=False) if t["word_ratio"] <= 0.8][:1]:
         facts.append({"finding": "fewer passages mainly about this topic, and its typical words "
                                  "used less, though it was still mentioned",
@@ -514,15 +525,16 @@ def headline_facts(signals, ev):
     covered = " ".join(f.get("subject", "") for f in facts).lower()
     picks = (("phrase that was rare, picked up in the last few conferences, and is still in use",
               lex["continuing"]),
-             ("phrase used by more speakers than usual", [r for r in lex["rising"][:8] if r["n"] > 1]),
+             ("word or phrase used by many more speakers than usual",
+              [r for r in lex["rising"][:8] if r["speakers"] >= 8]),
              ("phrase never used in conference before", [r for r in lex["new"] if r["speakers"] >= 3]),
              ("a word one speaker used again and again",
               [r for r in lex["single"] if r["speakers"] == 1 and r["term"] not in covered]),
              # only news if it was still in use at the previous conference
              ("phrase that surged at a recent conference and has dropped away at this one",
               [r for r in sorted(lex["fading"][:8], key=lambda r: r["n"] == 1)  # phrases lead
-               if ev.term_counts(r["term"]).get(ev.c - 1, (0, 0))[0]
-               >= 0.4 * ev.term_counts(r["term"]).get(r["peak_ord"], (1, 0))[0]]))
+               if r["count"] <= 1  # ... and only a surge that many speakers had joined
+               and ev.term_counts(r["term"]).get(r["peak_ord"], (0, 0))[1] >= 7]))
     for finding, records in picks:
         for r in records[:1]:
             now = (f"{plural(r['count'], 'use')} by {plural(r['speakers'], 'speaker')}"
@@ -757,9 +769,10 @@ def build_html(signals, ev):
                       "the uses came from a single talk, or too few speakers used it: a speaker's "
                       "theme, not a conference-wide trend.",
                       lex["single"], ev, "single", shown=14))
-    add(lexical_block("Fading", "Surged across several talks in one of the previous six "
-                      "conferences and is now well under half of that peak (unlike “Absent” below, "
-                      "these were short-lived surges, not regular vocabulary).", lex["fading"], ev, "fading"))
+    add(lexical_block("Fading", "Surged across several talks at a recent conference, was still "
+                      "in the air at one of the last three, and is now well under half of that "
+                      "peak rate. Mostly everyday words that had a moment; unlike “Absent” below, "
+                      "none was regular vocabulary.", lex["fading"], ev, "fading", shown=10))
     add(lexical_block("Absent", f"Used in at least eight of the previous {BASELINE_N} conferences, "
                       "but not once this time.", lex["absent"], ev, "absent", shown=8))
     add("</section>")

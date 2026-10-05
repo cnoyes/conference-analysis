@@ -210,7 +210,8 @@ def classes_as_of(con, conf_id, term):
     # "peacemakers" outside scripture quotation, so the >= 3-speaker guard files it under
     # single-speaker emphasis instead of Rising.
     ("2023-04", "peacemakers", {"rising", "single"}),
-    ("2023-04", "let god prevail", {"fading"}),
+    # Fading is reported at the conference where the drop happens, not years later
+    ("2021-10", "let god prevail", {"fading"}),
 ])
 def test_backtest(con, conf_id, term, allowed):
     """As-of backtests: signals read nothing after conf_id (see test_signals_hide_the_future)."""
