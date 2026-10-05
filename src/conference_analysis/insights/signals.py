@@ -431,6 +431,7 @@ def compute_signals(conf_id, log=print):
         "new_topics": layers.new_topic_candidates(con, conf_id, topics.load_cache()),
         "quotes": layers.quote_signals(con, conf_id),
         "scriptures": layers.scripture_signals(con, conf_id),
+        "cited_scriptures": layers.citation_signals(con, conf_id),
         **layers.group_signals(con, conf_id),
         "topic_model": meta,
     }

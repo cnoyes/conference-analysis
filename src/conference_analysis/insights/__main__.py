@@ -7,7 +7,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="insights", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scrape", help="fetch API pages into the cache, then rebuild corpus.db")
-    sub.add_parser("ingest-scribe", help="load the provisional 2026-10 transcripts")
+    p = sub.add_parser("ingest-scribe", help="load provisional ldt-scribe transcripts")
+    p.add_argument("conf", nargs="?", default="2026-10", help="a key of scribe.SESSIONS")
+    sub.add_parser("ingest-historical", help="fetch and load 1942-1970 (docs/PRE1971_SOURCES.md)")
     sub.add_parser("corpus-check", help="reconcile against legacy index -> docs/CORPUS_CHECK.md")
     sub.add_parser("index", help="build n-gram, quote and scripture indexes")
     p = sub.add_parser("topics", help="fit the frozen topic model / assign paragraphs to it")
@@ -29,7 +31,11 @@ def main(argv=None):
         build()
     elif args.cmd == "ingest-scribe":
         from .scribe import ingest
-        ingest()
+        ingest(args.conf)
+    elif args.cmd == "ingest-historical":
+        from .historical import fetch_historical, ingest_historical
+        fetch_historical()
+        ingest_historical()
     elif args.cmd == "corpus-check":
         from .check import corpus_check
         corpus_check()

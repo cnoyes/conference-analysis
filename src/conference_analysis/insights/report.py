@@ -63,6 +63,8 @@ def change_words(now, before):
     ratio = now / before if before else 99
     if ratio >= 4:
         return "several times the usual amount"
+    if ratio >= 2.6:
+        return "about three times the usual amount"
     if ratio >= 1.8:
         return "about double the usual amount"
     if ratio >= 1.15:
@@ -232,8 +234,8 @@ def narrate(facts, conf_id):
         "the item lists them; when an item is marked single_speaker, say plainly that it comes "
         "from one talk; when an item names a likely_source, say the quotation comes from that "
         "source.\n\n"
-        + json.dumps([{k: v for k, v in f.items() if k not in ("stats", "fallback")} for f in facts],
-                     indent=1) +
+        + json.dumps([{k: v for k, v in f.items() if k not in ("stats", "fallback", "evidence")}
+                      for f in facts], indent=1) +
         "\n\nReply with only a JSON array of strings, one sentence per item, same order.")
     try:
         sentences = ask_json(prompt)
@@ -248,7 +250,8 @@ def overview(signals, facts, conf_id):
     lex, sc = signals["lexical"], signals["scriptures"]
     topics = [t for t in signals["topics"]["topics"] if not t["junk"]]
     material = {
-        "headline_findings": [{k: v for k, v in f.items() if k not in ("stats", "fallback")} for f in facts],
+        "headline_findings": [{k: v for k, v in f.items() if k not in ("stats", "fallback", "evidence")}
+                              for f in facts],
         "topics_discussed_more_than_usual": [
             {"topic": t["label"], "how_much": honest_change(t),
              "talks": "only two talks" if t["talks"] == 2 else "several talks"}
@@ -411,8 +414,9 @@ def movers(topics, up):
 def topic_row(t, ev, top_share, first_ord):
     body = (f"<p>{t['passages']} of {ev.total_passages} passages ({pct(t['share'])}) in "
             f"{plural(t['talks'], 'talk')}. {base_words(t)}: {t['base_passages']} passages "
-            f"({pct(t['base_share'])}). The topic's most typical words were used at "
-            f"{num(float(t['word_ratio']), 1)} times their usual rate.</p>"
+            f"({pct(t['base_share'])}). As a cross-check, the words most typical of this topic "
+            f"({esc(', '.join(t['check_words']))}) were used at {num(float(t['word_ratio']), 1)} "
+            "times their usual rate.</p>"
             + talk_list(ev.topic_talks(t["topic_id"]), "passage"))
     return (f'<div class="row"><div class="term">{esc(t["label"])}</div>'
             + spark([round(100 * h, 3) for h in t["history"]],
@@ -423,13 +427,14 @@ def topic_row(t, ev, top_share, first_ord):
             + details("Evidence", body) + "</div>")
 
 
-def quote_block(q, conf_id, show_here=True):
+def quote_block(q, conf_id, show_here=True, era="1971"):
     title = q["origin_title"].strip("“”")
-    origin = f"{q['origin_speaker']}, “{title}”, {conf_name(q['origin_conf'])}"
+    origin = (f"{q['origin_speaker']}, “{title}”, {conf_name(q['origin_conf'])}" if title
+              else f"{q['origin_speaker']}, {conf_name(q['origin_conf'])}")
     if q["origin_quoted"]:
         source = (f"Source: {q['likely_source']}. " if q.get("likely_source")
-                  else "The speaker was quoting an earlier source. ")
-        source += f"Earliest use in conference since 1971: {origin}"
+                  else "Possibly quoting an earlier source. ")
+        source += f"Earliest use in conference since {era}: {origin}"
     else:
         source = f"First said by {origin}"
     here = ""
@@ -438,7 +443,7 @@ def quote_block(q, conf_id, show_here=True):
                 + esc(", ".join(sorted({u["speaker"] for u in q["here"]}))) + ".</p>")
     lineage = "<ul>" + "".join(
         f"<li>{esc(conf_name(u['conf_id']))} — {esc(u['speaker'] or '')}"
-        + (f", “{esc(u['title'].strip('“”'))}”" if u["title"] else "") + "</li>"
+        + (f", “{esc(u['title'].strip('“”"'))}”" if u["title"] else "") + "</li>"
         for u in q["lineage"]) + "</ul>"
     return (f'<div class="quote"><blockquote>“{esc(tidy_quote(q["text"]))}”</blockquote>'
             f'<p class="src">{esc(source)}</p>{here}'
@@ -458,7 +463,13 @@ def scripture_table(rows, ev, label):
             f"<tbody>{body}</tbody></table></div>")
 
 
-def headline_facts(signals):
+def topic_evidence(t, ev):
+    return (f"<p>{t['passages']} of {ev.total_passages} passages in {plural(t['talks'], 'talk')}; "
+            f"{base_words(t).lower()}: {t['base_passages']} passages.</p>"
+            + talk_list(ev.topic_talks(t["topic_id"]), "passage"))
+
+
+def headline_facts(signals, ev):
     """Pick the strongest finding of each layer; each has stats (numbers) and a fallback sentence."""
     lex, sc = signals["lexical"], signals["scriptures"]
     topics = [t for t in signals["topics"]["topics"] if not t["junk"]]
@@ -472,7 +483,10 @@ def headline_facts(signals):
                       "fallback": f"President {president[0]['speaker']} spoke "
                                   f"{'twice' if len(president) == 2 else 'in this conference'}.",
                       "stats": f"{plural(len(president), 'talk')}, "
-                               f"{num(sum(t['words'] for t in president))} words"})
+                               f"{num(sum(t['words'] for t in president))} words",
+                      "evidence": "<ul>" + "".join(
+                          f"<li>{esc(ev.talk_label(t['talk_id']))} — {num(t['words'])} words</li>"
+                          for t in president) + "</ul>"})
     # a topic move makes a headline only when the subject's own words moved the same way
     for t in [t for t in movers(topics, up=True) if t["talks"] >= 3 and t["word_ratio"] >= 1.15][:1]:
         facts.append({"finding": "topic discussed more than usual", "topic": t["label"],
@@ -480,7 +494,8 @@ def headline_facts(signals):
                       "fallback": f"“{t['label']}” was discussed more than usual.",
                       "stats": f"{pct(t['share'])} of passages in {t['talks']} talks; "
                                f"{base_words(t).lower()} {pct(t['base_share'])}; its typical words "
-                               f"used at {num(float(t['word_ratio']), 1)} times the usual rate"})
+                               f"used at {num(float(t['word_ratio']), 1)} times the usual rate",
+                      "evidence": topic_evidence(t, ev)})
     for t in [t for t in movers(topics, up=False) if t["word_ratio"] <= 0.8][:1]:
         facts.append({"finding": "fewer passages mainly about this topic, and its typical words "
                                  "used less, though it was still mentioned",
@@ -488,14 +503,18 @@ def headline_facts(signals):
                       "fallback": f"“{t['label']}” was discussed less than usual.",
                       "stats": f"{pct(t['share'])} of passages; {base_words(t).lower()} "
                                f"{pct(t['base_share'])}; its typical words used at "
-                               f"{num(float(t['word_ratio']), 1)} times the usual rate"})
+                               f"{num(float(t['word_ratio']), 1)} times the usual rate",
+                      "evidence": topic_evidence(t, ev)})
     for cand in [c for c in signals["new_topics"] if c.get("kind") == "subject"][:1]:
         facts.append({"finding": "a subject that matched no long-running topic",
                       "subject": cand["label"], "speakers": cand["speakers"],
                       "single_speaker": len(cand["speakers"]) == 1,
                       "fallback": f"{', '.join(cand['speakers'])} spoke about {cand['label'].lower()}, "
                                   "a subject that matched no long-running topic.",
-                      "stats": f"{cand['passages']} passages, {plural(len(cand['speakers']), 'speaker')}"})
+                      "stats": f"{cand['passages']} passages, {plural(len(cand['speakers']), 'speaker')}",
+                      "evidence": f"<p>{cand['passages']} passages that matched no recurring topic, "
+                                  f"all from: {esc(', '.join(cand['speakers']))}. Their opening words "
+                                  "are under Topics below.</p>"})
     covered = " ".join(f.get("subject", "") for f in facts).lower()
     picks = (("phrase that was rare, picked up in the last few conferences, and is still in use",
               lex["continuing"]),
@@ -503,15 +522,20 @@ def headline_facts(signals):
              ("phrase never used in conference before", [r for r in lex["new"] if r["speakers"] >= 3]),
              ("a word one speaker used again and again",
               [r for r in lex["single"] if r["speakers"] == 1 and r["term"] not in covered]),
-             ("phrase that surged in an earlier conference and has now dropped away",
-              sorted(lex["fading"][:8], key=lambda r: r["n"] == 1)))  # stable: phrases lead
+             # only news if it was still in use at the previous conference
+             ("phrase that surged recently and has dropped away at this conference",
+              [r for r in sorted(lex["fading"][:8], key=lambda r: r["n"] == 1)  # phrases lead
+               if ev.term_counts(r["term"]).get(ev.c - 1, (0, 0))[0]
+               >= 0.4 * ev.term_counts(r["term"]).get(r["peak_ord"], (1, 0))[0]]))
     for finding, records in picks:
         for r in records[:1]:
             now = (f"{plural(r['count'], 'use')} by {plural(r['speakers'], 'speaker')}"
                    if r["count"] else "not used this time")
             fact = {"finding": finding, "phrase": r["term"],
                     "fallback": f"“{show_term(r['term'])}”: {finding}.",
-                    "stats": f"{now}; previous {BASELINE_N} conferences {r['base_count']} uses in all"}
+                    "stats": f"{now}; previous {BASELINE_N} conferences {r['base_count']} uses in all",
+                    "evidence": (talk_list(ev.term_talks(r["term"])) or "<p>No talk used it this "
+                                 "conference.</p>") + "<p>Its history is under Phrases below.</p>"}
             if "surged" in finding:
                 fact["stats"] += f"; most widespread in {ord_name(r['peak_ord'])}"
             if "one speaker" in finding:
@@ -524,7 +548,10 @@ def headline_facts(signals):
                       "repeated_by": sorted({u["speaker"] for u in q["here"]}),
                       "fallback": "A long-established quotation was repeated again.",
                       "stats": f"repeated in {q['later_talks']} talks after its first use in "
-                               f"conference ({conf_name(q['origin_conf'])})"})
+                               f"conference ({conf_name(q['origin_conf'])})",
+                      "evidence": "<p>This conference: " + esc(", ".join(
+                          ev.talk_label(u["talk_id"]) for u in q["here"]))
+                          + ". Every talk that has used it is listed under Quotations below.</p>"})
     shares = [(v, v["quotes"] / max(sc["total_quotes"], 1), v["base_quotes"] / max(sc["base_total_quotes"], 1))
               for v in sc["volumes"] if v["quotes"] >= 15]
     for v, now, before in sorted(shares, key=lambda s: s[2] / max(s[1], 1e-9))[:1]:
@@ -533,7 +560,10 @@ def headline_facts(signals):
                           "book_of_scripture": v["volume"], "how_much": change_words(now, before),
                           "fallback": f"The {v['volume']} was quoted more than usual.",
                           "stats": f"{pct(now)} of verse quotations; previous {BASELINE_N} "
-                                   f"conferences {pct(before)}"})
+                                   f"conferences {pct(before)}",
+                          "evidence": f"<p>{v['quotes']} of {sc['total_quotes']} verse quotations this "
+                                      f"conference; {v['base_quotes']} of {sc['base_total_quotes']} in the "
+                                      f"previous {BASELINE_N} conferences.</p>"})
     return facts
 
 
@@ -647,12 +677,13 @@ def build_html(signals, ev):
         f"{n_talks} talks in a conference, most shifts are modest; one or two talks can move a number.</p>")
 
     # ---- 1 headline
-    facts = headline_facts(signals)
+    facts = headline_facts(signals, ev)
     sentences = narrate(facts, conf_id)
     lead = overview(signals, facts, conf_id)
     add('<section id="s1"><h2>1. Headlines</h2>'
         + (f"<p class='lead'>{esc(lead)}</p>" if lead else "") + '<ol class="head">' + "".join(
-            f"<li>{esc(s)}<div class='fig'>{esc(f['stats'])}</div></li>"
+            f"<li>{esc(s)}<div class='fig'>{esc(f['stats'])}</div>"
+            + details("Evidence", f["evidence"]) + "</li>"
             for s, f in zip(sentences, facts)) + "</ol></section>")
 
     # ---- 2 topics
@@ -750,16 +781,19 @@ def build_html(signals, ev):
             repeated.append(q)
     qs["repeated"] = repeated
     add("<h3>Established quotations repeated this conference</h3>")
-    add("".join(quote_block(q, conf_id) for q in qs["repeated"][:12]) or "<p class='none'>None found.</p>")
+    era = since.split()[-1]
+    add("".join(quote_block(q, conf_id, era=era) for q in qs["repeated"][:12])
+        or "<p class='none'>None found.</p>")
     add("<h3>For context</h3>")
     shown = {q["quote_id"] for q in qs["repeated"][:12]}
     qs["all_time"] = [q for q in qs["all_time"] if q["quote_id"] not in shown]
     qs["recent"] = [q for q in qs["recent"] if q["quote_id"] not in shown]
-    add(details("The most-repeated quotations since 1971",
+    add(details(f"The most-repeated quotations since {era}",
                 "<p>The passages repeated by the most different speakers across every conference "
-                "since 1971 (leaving out any already shown above).</p>" + "".join(quote_block(q, conf_id, show_here=False) for q in qs["all_time"])))
+                f"since {era} (leaving out any already shown above).</p>"
+                + "".join(quote_block(q, conf_id, False, era) for q in qs["all_time"])))
     add(details(f"The most-repeated lines first said in the last {BASELINE_N} conferences",
-                "".join(quote_block(q, conf_id, show_here=False) for q in qs["recent"])
+                "".join(quote_block(q, conf_id, False, era) for q in qs["recent"])
                 or "<p>None yet.</p>"))
     if signals["provisional"]:
         add("<p class='note'>Which earlier talks were cited most in footnotes cannot be shown yet: "
@@ -779,6 +813,13 @@ def build_html(signals, ev):
         "two books (Malachi 3 is repeated in 3 Nephi 24) is counted once, under the earlier book.</p>")
     add("<h3>Chapters quoted by the most talks</h3>" + scripture_table(sc["top_chapters"], ev, "Chapter"))
     add("<h3>Verses quoted by the most talks</h3>" + scripture_table(sc["top_verses"], ev, "Verse"))
+    cited = signals.get("cited_scriptures") or {}
+    if cited.get("top_chapters"):
+        add("<h3>Chapters cited most in footnotes and references</h3><p class='blurb'>From the "
+            "published footnotes and scripture references of the talks (a citation does not "
+            "have to quote the verse).</p>" + scripture_table(cited["top_chapters"], ev, "Chapter")
+            .replace("Talks quoting it", "Talks citing it").replace("Talks usually quoting it",
+                                                                    "Talks usually citing it"))
     add("<h3>Changes</h3><div class='two'><div><p class='blurb'>Quoted by more talks than usual</p>"
         + ("".join(f"<p class='up'><strong>{esc(r['ref'])}</strong> <span class='fig'>{r['talks']} talks; "
                    f"usually {usual(r['base_per_conf'])}</span></p>"
@@ -869,7 +910,7 @@ def build_html(signals, ev):
         "small shifts are within normal variation.</li>")
     add("<li><strong>Quotations.</strong> Matching finds word-for-word reuse only, not paraphrase, "
         "and small spelling differences can split one quotation's history in two. “Earliest use” "
-        "means the earliest in conference talks since 1971; when that speaker was already quoting "
+        "means the earliest in the conference talks we have; when that speaker was already quoting "
         "someone, an AI model was asked to name the well-known source, and that name is not "
         "verified. Each count covers one matched passage of at most 40 words; the excerpt shown is "
         "trimmed to whole sentences, so a counted talk may share the trimmed-off words.</li>")

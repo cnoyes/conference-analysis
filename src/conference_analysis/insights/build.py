@@ -144,6 +144,20 @@ def insert_talk(con, talk_id, conf_id, uri, session, position, t, source, provis
          for c in t["citations"]])
 
 
+def fill_calling_groups(con):
+    """A talk published without a role line takes the speaker's group from his or her
+    nearest other talk (same conference first), instead of defaulting to 'Other'."""
+    blank = con.execute(
+        "SELECT talk_id, speaker_id FROM talks WHERE kind='address' AND role_raw='' "
+        "AND speaker_id IS NOT NULL").fetchall()
+    for talk_id, speaker_id in blank:
+        near = con.execute(
+            "SELECT calling_group FROM talks WHERE speaker_id=? AND role_raw != '' "
+            "ORDER BY ABS(talk_id - ?) LIMIT 1", (speaker_id, talk_id)).fetchone()
+        if near:
+            con.execute("UPDATE talks SET calling_group=? WHERE talk_id=?", (near[0], talk_id))
+
+
 def build(log=print):
     """Rebuild every API-sourced row from the cache. Idempotent; scribe rows untouched."""
     con = connect()
@@ -169,6 +183,7 @@ def build(log=print):
             insert_talk(con, conf_ordinal(conf_id) * 100 + position, conf_id, uri,
                         sessions.get(uri, ""), position, parse_talk(data), "api")
             total += 1
+    fill_calling_groups(con)
     con.execute("DELETE FROM speakers WHERE speaker_id NOT IN "
                 "(SELECT speaker_id FROM talks WHERE speaker_id IS NOT NULL)")
     con.commit()

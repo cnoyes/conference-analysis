@@ -16,7 +16,8 @@ def corpus_check(log=print):
         for row in csv.DictReader(fh):
             legacy[row["date"][:7]].add(uri_of(row["href"]))
     ours = defaultdict(dict)  # conf -> uri -> (kind, title)
-    for conf_id, uri, kind, title in con.execute("SELECT conf_id, uri, kind, title FROM talks"):
+    for conf_id, uri, kind, title in con.execute(
+            "SELECT conf_id, uri, kind, title FROM talks WHERE source != 'historical'"):
         ours[conf_id][uri] = (kind, title)
 
     lines = [
@@ -30,18 +31,22 @@ def corpus_check(log=print):
         "SELECT COUNT(DISTINCT conf_id), SUM(kind='address'), SUM(kind!='address'), "
         "SUM(CASE WHEN kind='address' THEN word_count END) FROM talks WHERE source='api'").fetchone()
     prov = con.execute("SELECT COUNT(*), SUM(word_count) FROM talks WHERE provisional=1").fetchone()
+    hist = con.execute("SELECT COUNT(*), SUM(word_count), MIN(conf_id), MAX(conf_id) FROM talks "
+                       "WHERE source='historical' AND kind='address'").fetchone()
     para, notes, cites = (con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
                           for t in ("paragraphs", "footnotes", "citations"))
     lines += [
         f"- API conferences: {totals[0]} (1971-04 to 2026-04), {totals[1]} addresses "
         f"({totals[3]:,} words), {totals[2]} non-address items (sessions, sustainings, reports)",
         f"- Provisional talks (ldt-scribe transcripts): {prov[0]} ({prov[1] or 0:,} words)",
+        f"- Pre-1971 talks (BYU Scripture Citation Index, {hist[2]} to {hist[3]}): {hist[0]} "
+        f"({hist[1] or 0:,} words); outside the legacy scrape, so not reconciled here",
         f"- Paragraphs: {para:,}; footnotes: {notes:,}; citations: {cites:,}", "",
         "| Conference | Addresses (API) | Legacy talks | Diff | Status |",
         "|---|---|---|---|---|",
     ]
     details, unexplained = [], 0
-    for conf_id in sorted(c for c in ours if c in legacy or c <= max(legacy)):
+    for conf_id in sorted(c for c in ours if min(legacy) <= c <= max(legacy)):
         addresses = {u for u, (kind, _) in ours[conf_id].items() if kind == "address"}
         old = legacy.get(conf_id, set())
         diff = len(addresses) - len(old)

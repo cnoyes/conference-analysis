@@ -2,27 +2,27 @@
 
 Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedded with `BAAI/bge-large-en-v1.5`, clustered with umap+hdbscan(min_cluster_size=100), each passage then assigned to its nearest topic centroid (cosine similarity below 0.763 = no topic).
 
-92 topics; 5 are flagged as boilerplate and hidden from reports. Labels were written by `claude -p` from the terms and five representative passages. Size = training passages assigned.
+92 topics; 8 are flagged as boilerplate and hidden from reports. Labels were written by `claude -p` from the terms and five representative passages. Size = training passages assigned.
 
 | ID | Label | Size | Boilerplate | Top terms |
 |---|---|---|---|---|
 | 75 | Priesthood Holders' Duties | 2836 |  | priesthood, aaronic, aaronic priesthood, quorum, men, power, young, young men, brethren, lord |
-| 44 | Faith Through Trials | 2754 |  | faith, us, hope, god, life, lord, things, christ, trials, see |
+| 44 | Trusting God in Adversity | 2754 |  | faith, us, hope, god, life, lord, things, christ, trials, see |
 | 28 | General Exhortations to Members | 2518 | yes | church, us, members, gospel, others, people, need, one, may, world |
-| 81 | Tributes to Church Presidents | 2299 |  | president, kimball, president kimball, church, conference, hinckley, monson, prophet, years, twelve |
+| 81 | Quoting Church Leaders | 2299 | yes | president, kimball, president kimball, church, conference, hinckley, monson, prophet, years, twelve |
 | 67 | Teaching Children at Home | 2252 |  | children, parents, family, home, teach, families, child, family home, love, teach children |
 | 86 | Missionary and Conversion Stories | 2089 |  | mission, missionaries, missionary, church, years, young, said, family, home, baptized |
-| 36 | Book of Mormon Stories | 2016 |  | nephi, alma, unto, ye, ne, mormon, lord, god, people, book mormon |
+| 36 | Book of Mormon Passages | 2016 |  | nephi, alma, unto, ye, ne, mormon, lord, god, people, book mormon |
 | 73 | Closing Testimonies | 1940 | yes | amen, christ amen, jesus christ, name jesus, name, jesus, christ, testify, may, us |
-| 79 | Reading the Book of Mormon | 1642 |  | book, book mormon, mormon, read, christ, bible, joseph, smith, read book, joseph smith |
-| 89 | Family Illness and Loss Stories | 1352 |  | mother, would, hospital, family, felt, could, father, years, little, one |
+| 79 | The Book of Mormon as Scripture | 1642 |  | book, book mormon, mormon, read, christ, bible, joseph, smith, read book, joseph smith |
+| 89 | Personal and Family Stories | 1352 |  | mother, would, hospital, family, felt, could, father, years, little, one |
 | 46 | Jesus as Son of God | 1338 |  | father, jesus, son, christ, god, jesus christ, john, shall, begotten, name |
 | 69 | Addresses to Women and Young Women | 1336 |  | women, young women, sisters, young, daughters, woman, sister, love, dear, women church |
-| 31 | Gift of the Holy Ghost | 1314 |  | holy ghost, ghost, holy, spirit, gift, gift holy, truth, receive, us, things |
-| 78 | Joseph Smith's First Vision | 1201 |  | joseph, smith, joseph smith, prophet, prophet joseph, vision, son, god, father son, father |
-| 40 | Last Days Warnings and Signs | 1167 |  | shall, unto, lord, earth, voice, ye, come, people, upon, coming |
+| 31 | Holy Ghost and Revelation | 1314 |  | holy ghost, ghost, holy, spirit, gift, gift holy, truth, receive, us, things |
+| 78 | Joseph Smith and the First Vision | 1201 |  | joseph, smith, joseph smith, prophet, prophet joseph, vision, son, god, father son, father |
+| 40 | Scripture in the Lord's Voice | 1167 | yes | shall, unto, lord, earth, voice, ye, come, people, upon, coming |
 | 38 | Following Christ as Disciples | 1166 |  | follow, christ, jesus, us, savior, jesus christ, come, way, path, unto |
-| 87 | Calls to Serve Missions | 1155 |  | missionary, missionaries, mission, serve, young, full time, service, full, young men, missionary service |
+| 87 | Missionary Work | 1155 |  | missionary, missionaries, mission, serve, young, full time, service, full, young men, missionary service |
 | 63 | Repentance and Forgiveness | 1130 |  | repentance, sins, forgive, repent, forgiveness, sin, forgiven, us, lord, mistakes |
 | 66 | Eternal Marriage | 1119 |  | marriage, family, wife, husband, married, eternal, children, love, husband wife, divorce |
 | 34 | Personal Prayer | 1094 |  | prayer, pray, prayers, father, heavenly father, heavenly, ask, us, help, lord |
@@ -34,11 +34,11 @@ Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedde
 | 64 | Atonement of Jesus Christ | 961 |  | atonement, savior, sins, christ, death, us, jesus, sacrifice, mercy, jesus christ |
 | 52 | Relief Society Sisterhood | 941 |  | relief society, relief, society, women, sisters, sister, organization, society sisters, ward, church |
 | 35 | Peace Through Christ | 922 |  | peace, world, us, love, christ, let, god, jesus, savior, give unto |
-| 41 | Moses, Joshua and Ancient Israel | 773 |  | moses, israel, abraham, lord, egypt, land, joseph, thee, joshua, children israel |
+| 41 | Old Testament Narratives | 773 |  | moses, israel, abraham, lord, egypt, land, joseph, thee, joshua, children israel |
 | 54 | Priesthood Keys and Succession | 719 |  | authority, church, presidency, keys, twelve, president, quorum, priesthood, first presidency, president church |
-| 61 | Pornography and Immoral Media | 715 |  | pornography, television, sexual, evil, moral, immorality, sex, movies, media, internet |
-| 22 | The Two Great Commandments | 691 |  | love, thy, commandment, thou shalt, shalt, shalt love, thou, commandments, great commandment, neighbour |
-| 83 | Church Growth in South America | 661 |  | south, america, members, church, missionaries, temple, south america, stake, mission, brazil |
+| 61 | Sexual Purity and Media | 715 |  | pornography, television, sexual, evil, moral, immorality, sex, movies, media, internet |
+| 22 | Loving God and Neighbor | 691 |  | love, thy, commandment, thou shalt, shalt, shalt love, thou, commandments, great commandment, neighbour |
+| 83 | Stories from the Worldwide Church | 661 |  | south, america, members, church, missionaries, temple, south america, stake, mission, brazil |
 | 19 | Temple Worship and Worthiness | 651 |  | temple, house, temples, ordinances, sacred, covenants, house lord, recommend, holy, lord |
 | 45 | Happiness Through Keeping Commandments | 649 |  | happiness, joy, happy, life, plan, commandments, god, plan happiness, us, peace |
 | 29 | Seeking Knowledge and Truth | 648 |  | knowledge, truth, study, learning, wisdom, scriptures, seek, god, revelation, things |
@@ -46,11 +46,11 @@ Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedde
 | 90 | Childhood and Family Stories | 630 |  | mother, dad, car, home, would, could, said, little, boy, one |
 | 12 | Light of Christ vs. Darkness | 626 |  | light, darkness, shine, light world, dark, light christ, world, us, christ, shall |
 | 42 | Restoration of Priesthood Keys | 620 |  | keys, priesthood, elijah, joseph, smith, joseph smith, oliver, earth, john, prophet |
-| 85 | Temple Sealings and Eternal Marriage | 616 |  | temple, sealed, family, married, years, wife, husband, sealing, later, together |
-| 47 | Baptism of Jesus and Divine Witnesses | 613 |  | john, unto, jesus, peter, son, baptized, heaven, said, ye, voice |
-| 59 | Christ's Suffering in Gethsemane | 607 |  | gethsemane, cross, cup, suffering, jesus, pain, agony, father, suffer, suffered |
+| 85 | Families Reaching the Temple | 616 |  | temple, sealed, family, married, years, wife, husband, sealing, later, together |
+| 47 | Scripture Narratives and Visions | 613 | yes | john, unto, jesus, peter, son, baptized, heaven, said, ye, voice |
+| 59 | Gethsemane and the Crucifixion | 607 |  | gethsemane, cross, cup, suffering, jesus, pain, agony, father, suffer, suffered |
 | 68 | Motherhood and Women's Roles | 595 |  | mother, women, mothers, woman, children, motherhood, home, role, family, love |
-| 60 | Apostasy and Restoration | 593 |  | prophets, earth, gospel, dispensation, revelation, god, amos, restoration, times, apostasy |
+| 60 | Prophets and Continuing Revelation | 593 |  | prophets, earth, gospel, dispensation, revelation, god, amos, restoration, times, apostasy |
 | 43 | Pioneer Trek and Sacrifice | 590 |  | valley, pioneers, salt, salt lake, lake, brigham, saints, pioneer, brigham young, wagons |
 | 23 | Serving Others | 566 |  | service, serve, others, ye, love, ye service, service god, serving, god, us |
 | 48 | Sacrament and Baptismal Covenants | 532 |  | sacrament, partake, baptism, ordinance, always, partake sacrament, always remember, remember, covenant, bread |
@@ -58,7 +58,7 @@ Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedde
 | 65 | Jesus Heals the Sick | 518 |  | healed, thee, sick, jesus, unto, blind, heal, ye, man, saw |
 | 32 | Gaining and Bearing Testimony | 506 |  | testimony, testimonies, witness, gospel, truth, know, testimony jesus, jesus, knowledge, christ |
 | 14 | Paying Tithing | 498 |  | tithing, pay, tithes, pay tithing, law, paying, lord, tithe, windows heaven, money |
-| 8 | Parables of the Savior | 492 |  | ye, fruit, shall, seed, parable, unto, matt, vineyard, harvest, tree |
+| 8 | Sayings and Parables of Jesus | 492 |  | ye, fruit, shall, seed, parable, unto, matt, vineyard, harvest, tree |
 | 49 | Making and Keeping Covenants | 433 |  | covenant, covenants, keeping, ordinances, keep, path, promises, god, us, keeping covenants |
 | 21 | Gospel Teaching and Teachers | 430 |  | teacher, teaching, teach, teachers, gospel, class, students, taught, learning, church |
 | 74 | Easter and the Resurrection | 408 |  | easter, resurrection, christ, jesus, jesus christ, sunday, easter sunday, death, savior, season |
@@ -67,7 +67,7 @@ Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedde
 | 20 | Family History and Temple Work | 389 |  | family history, family, ancestors, history, temple, work, names, genealogical, records, ordinances |
 | 77 | Temple Announcements and Dedications | 389 |  | temples, temple, dedicated, construction, built, building, new temples, dedication, new, lake temple |
 | 88 | Church Growth Statistics | 389 |  | church, missionaries, million, members, stakes, missions, world, number, missionary, years |
-| 72 | Joseph and Hyrum's Martyrdom | 379 |  | joseph, smith, joseph smith, hyrum, prophet, prophet joseph, brother, brigham, carthage, church |
+| 72 | Early Church History and Martyrdom | 379 |  | joseph, smith, joseph smith, hyrum, prophet, prophet joseph, brother, brigham, carthage, church |
 | 25 | Unity Among Church Members | 368 |  | unity, one, christ, together, paul, church, god, us, united, one another |
 | 27 | Constitution, Freedom, and Citizenship | 367 |  | constitution, nation, land, freedom, government, states, liberty, united states, law, united |
 | 33 | Zion and Gathering Israel | 367 |  | zion, shall, gathering, people, israel, lord, house, stakes, nations, earth |
@@ -80,7 +80,7 @@ Frozen model fit on conferences 1971-04 through 2026-04: 75,409 passages embedde
 | 6 | Correct Name of the Church | 284 |  | name, church, name church, day saints, latter, latter day, church jesus, saints, christ, christ latter |
 | 10 | Peter's Faith on Galilee | 280 |  | peter, sea, simon, nets, thou, disciples, wind, jesus, ship, galilee |
 | 24 | Charity, the Pure Love of Christ | 280 |  | charity, love, pure love, love christ, pure, charity pure, endureth, moro, christ, endureth forever |
-| 70 | Mary Magdalene at the Empty Tomb | 261 |  | mary, tomb, risen, dead, john, martha, mary magdalene, body, magdalene, sepulchre |
+| 70 | Empty Tomb and Resurrection Accounts | 261 |  | mary, tomb, risen, dead, john, martha, mary magdalene, body, magdalene, sepulchre |
 | 15 | Caring for the Poor | 253 |  | poor, needy, poor needy, impart, unto, shall, unto poor, lord, ye, provide saints |
 | 58 | Adam, Eve, and the Fall | 242 |  | adam, eve, adam eve, garden, eden, garden eden, fall, moses, god, transgression |
 | 50 | Home and Visiting Teaching | 236 |  | home, home teaching, home teachers, teachers, teaching, teacher, home teacher, priesthood, visit, families |

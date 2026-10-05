@@ -111,6 +111,7 @@ def topic_signals(con, conf_id, model_topics):
             "base_passages": int(y_j), "base_share": round(float(base_share), 5),
             "older_share": round(float(older_share), 5), "z": round(z, 2), "seasonal": seasonal,
             "word_ratio": word_ratio(info[topic_id]["terms"]),
+            "check_words": [t for t in info[topic_id]["terms"] if " " not in t][:5],
             # one value per ordinal from the first conference to C (0 where one is missing)
             "history": [round(float(share[i, ords.index(o)]), 5) if o in ords else 0.0
                         for o in range(ords[0], c + 1)],
@@ -196,13 +197,15 @@ def quote_record(con, q, lineage=None, conf_id=None, upto=None):
     if upto:
         lineage = [u for u in lineage if u["conf_id"] <= upto]
     origin = con.execute(
-        "SELECT t.title, t.conf_id, s.name FROM talks t LEFT JOIN speakers s USING (speaker_id) "
+        "SELECT t.title, t.conf_id, s.name, t.source FROM talks t "
+        "LEFT JOIN speakers s USING (speaker_id) "
         "WHERE t.talk_id=?", (q.get("origin_talk_id") or q["talk_id"],)).fetchone()
     return {
         "quote_id": q["quote_id"],
         "text": display_text(con, q["origin_para_id"], q["tok_start"], q["tok_end"]),
         "origin_title": origin[0], "origin_conf": origin[1], "origin_speaker": origin[2],
-        "origin_quoted": q["origin_quoted"],
+        # pre-1971 text has no dependable quotation marks, so its "origin" is only an earliest use
+        "origin_quoted": 1 if origin[3] == "historical" else q["origin_quoted"],
         "later_talks": len(lineage), "later_speakers": len({u["speaker"] for u in lineage}),
         "first_use": lineage[0]["conf_id"], "last_use": lineage[-1]["conf_id"],
         "here": [u for u in lineage if u["conf_id"] == conf_id and u["words"] >= MIN_WORDS]
@@ -270,6 +273,26 @@ def scripture_signals(con, conf_id):
         "total_quotes": sum(n[0] for n in by_volume.values()),
         "base_total_quotes": sum(n[1] for n in by_volume.values()),
     }
+
+
+def citation_signals(con, conf_id):
+    """Scripture chapters cited in footnotes and in-text references (official text only)."""
+    from .citations import book_names
+    c = conf_ordinal(conf_id)
+    names = book_names()
+    here, before = defaultdict(set), defaultdict(set)
+    for ordinal, talk_id, book, chapter in con.execute(
+            "SELECT cf.ordinal, x.talk_id, x.book, x.chapter FROM citations x "
+            "JOIN talks t USING (talk_id) JOIN conferences cf USING (conf_id) "
+            "WHERE x.target_type='scripture' AND x.book IS NOT NULL AND x.chapter IS NOT NULL "
+            "AND t.kind='address' AND cf.ordinal BETWEEN ? AND ?", (c - BASELINE_N, c)):
+        (here if ordinal == c else before)[(names.get(book, book), chapter)].add(talk_id)
+    rows = [{"ref": f"{book} {chapter}", "book": book, "chapter": chapter, "verse": None,
+             "talks": len(talks), "talk_ids": sorted(talks),
+             "base_talks": len(before[(book, chapter)]),
+             "base_per_conf": round(len(before[(book, chapter)]) / BASELINE_N, 2)}
+            for (book, chapter), talks in here.items()]
+    return {"top_chapters": sorted(rows, key=lambda r: (-r["talks"], r["ref"]))[:12]}
 
 
 # ---------------------------------------------------------------- speaker groups

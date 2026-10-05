@@ -6,7 +6,8 @@ number of addresses per conference in `data/corpus.db` with the legacy R scrape
 
 - API conferences: 111 (1971-04 to 2026-04), 4047 addresses (7,387,909 words), 885 non-address items (sessions, sustainings, reports)
 - Provisional talks (ldt-scribe transcripts): 37 (44,557 words)
-- Paragraphs: 147,850; footnotes: 26,317; citations: 51,834
+- Pre-1971 talks (BYU Scripture Citation Index, 1942-04 to 1970-10): 1823 (3,786,002 words); outside the legacy scrape, so not reconciled here
+- Paragraphs: 216,934; footnotes: 26,317; citations: 69,280
 
 | Conference | Addresses (API) | Legacy talks | Diff | Status |
 |---|---|---|---|---|
