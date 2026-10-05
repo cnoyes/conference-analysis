@@ -568,7 +568,8 @@ def headline_facts(signals, ev):
               for v in sc["volumes"] if v["quotes"] >= 15]
     for v, now, before in sorted(shares, key=lambda s: s[2] / max(s[1], 1e-9))[:1]:
         if now >= 1.3 * before:
-            facts.append({"finding": "a book of scripture quoted word-for-word more than usual",
+            facts.append({"finding": "a book of scripture whose share of all word-for-word scripture "
+                                     "quotations was larger than usual (say 'share')",
                           "book_of_scripture": v["volume"], "how_much": change_words(now, before),
                           "fallback": f"The {v['volume']} was quoted more than usual.",
                           "stats": f"{pct(now)} of verse quotations; previous {BASELINE_N} "
