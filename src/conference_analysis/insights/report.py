@@ -21,7 +21,8 @@ PROPER = {"jesus": "Jesus", "christ": "Christ", "christ's": "Christ's", "god": "
           "lord": "Lord", "lord's": "Lord's", "savior": "Savior", "savior's": "Savior's",
           "heavenly": "Heavenly", "holy": "Holy", "ghost": "Ghost", "spirit": "Spirit",
           "mormon": "Mormon", "easter": "Easter", "sabbath": "Sabbath", "zion": "Zion",
-          "israel": "Israel", "redeemer": "Redeemer"}
+          "israel": "Israel", "redeemer": "Redeemer", "isaiah": "Isaiah", "elijah": "Elijah",
+          "nephi": "Nephi", "alma": "Alma", "moroni": "Moroni"}
 GROUP_NAMES = {"First Presidency": "First Presidency", "Twelve": "Quorum of the Twelve Apostles",
                "Other": "Other speakers (Seventies, Presiding Bishopric, general officers)"}
 esc = html.escape
@@ -83,7 +84,7 @@ def show_term(term):
     if term == "come follow":  # the index drops the closing "me" as a filler word
         return "Come, Follow Me"
     shown = " ".join(PROPER.get(w, w) for w in term.split())
-    return shown.replace("Heavenly father", "Heavenly Father")
+    return shown.replace("Heavenly father", "Heavenly Father").replace("book of Mormon", "Book of Mormon")
 
 
 def unstutter(text):
@@ -232,7 +233,8 @@ def narrate(facts, conf_id):
         "ten conferences before it. Write exactly one plain sentence per item (at most 30 "
         "words). Rules: do NOT include any number, digit, count or percentage - the page shows "
         "the numbers next to your sentence; no statistics jargon; when an item has how_much, "
-        "use that wording for the size of the change, neither stronger nor weaker; name speakers only when "
+        "use that wording for the size of the change, neither stronger nor weaker; write names exactly as given and never add a title "
+        "(Elder, President, Sister, Brother) that the item does not give; name speakers only when "
         "the item lists them; when an item is marked single_speaker, say plainly that it comes "
         "from one talk; when an item names a likely_source, say the quotation comes from that "
         "source.\n\n"
@@ -276,7 +278,9 @@ def overview(signals, facts, conf_id):
         "Conference of The Church of Jesus Christ of Latter-day Saints, compared with earlier "
         "conferences. Write a short overview paragraph (three or four plain sentences, at most "
         "ninety words) for ordinary church members that ties related findings together - for "
-        "example several findings about the same theme. Rules: use ONLY what is listed; do not "
+        "example several findings about the same theme. Rules: use ONLY what is listed; write names exactly as given and never add a title (Elder, "
+        "President, Sister, Brother) that is not given; do not claim a connecting theme unless "
+        "two listed findings share it; do not "
         "include any number or digit; no statistics jargon; do not overstate - these are "
         "shifts in emphasis; describe the size of each change with the how_much wording "
         "given, neither stronger nor weaker; say \"one talk\" when something comes from a single "
