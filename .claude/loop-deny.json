@@ -1,0 +1,17 @@
+{
+  "_comment": "Deny rules for headless loop-dev inner loops ONLY. Passed via `claude -p --settings .claude/loop-deny.json` by kick-loop.sh.",
+  "permissions": {
+    "deny": [
+      "Edit(//home/clay/code/ldt-scribe/**)",
+      "Edit(//home/clay/code/ldt-search/**)",
+      "Edit(//home/clay/code/ldt-data/**)",
+      "Edit(//home/clay/code/conference-analysis/legacy/**)",
+      "Bash(rm -rf /home/clay/code/conference-analysis/legacy:*)",
+      "Bash(rm -rf /home/clay/code/conference-analysis/data:*)",
+      "Bash(git push:*)",
+      "Bash(sudo:*)",
+      "Read(//home/clay/.ssh/**)",
+      "Read(//home/clay/.config/**)"
+    ]
+  }
+}
